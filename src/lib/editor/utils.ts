@@ -27,22 +27,31 @@ export function clamp(value: number, min: number, max: number) {
 /** Resolve the top-level block that contains (or is nearest to) `pos`. */
 export function blockInfoFromPos(editor: Editor, pos: number): BlockInfo | null {
   const doc = editor.state.doc;
-  const p = clamp(pos, 1, doc.content.size);
+  const p = clamp(pos, 0, doc.content.size);
   const $pos = doc.resolve(p);
 
-  let contentOffset: number;
+  /*
+   * Find where the containing top-level block STARTS.
+   * For a caret inside a block, that's `$pos.before(1)`. For a boundary
+   * position (depth 0), prefer the block starting exactly at `p`, falling
+   * back to the block ending there. (Using `childAfter(p - 1)` — the old
+   * approach — attributes the caret to the *previous* block, which broke
+   * hover targeting, Alt+↑/↓, duplicate and the drag anchor.)
+   */
+  let blockStart: number;
   if ($pos.depth === 0) {
-    const after = doc.childAfter(p - 1);
-    const before = doc.childBefore(p - 1);
-    if (after.node) contentOffset = after.offset;
-    else if (before.node) contentOffset = before.offset;
+    const after = doc.childAfter(p);
+    const before = doc.childBefore(p);
+    if (after.node && after.offset === p) blockStart = after.offset;
+    else if (before.node) blockStart = before.offset;
+    else if (after.node) blockStart = after.offset;
     else return null;
   } else {
-    contentOffset = $pos.before(1) - 1;
+    blockStart = $pos.before(1);
   }
 
-  const child = doc.childAfter(contentOffset);
-  if (!child.node) return null;
+  const child = doc.childAfter(blockStart);
+  if (!child.node || child.offset !== blockStart) return null;
 
   return {
     index: child.index,
@@ -78,21 +87,29 @@ export function getTopLevelBlocks(editor: Editor): BlockInfo[] {
 /**
  * Move the given top-level block indices so they sit before the block
  * currently at `targetIndex` (or at the end when `targetIndex` is past the end).
+ * The page title (first block, when present) is immovable and nothing can
+ * be dropped above it.
  */
 export function moveBlocks(editor: Editor, fromIndices: number[], targetIndex: number): boolean {
   const blocks = getTopLevelBlocks(editor);
-  const moving = blocks.filter((b) => fromIndices.includes(b.index));
+  const hasTitle = blocks[0]?.node.type.name === "pageTitle";
+
+  // Refuse to move the page title itself.
+  const moving = blocks.filter((b) => fromIndices.includes(b.index) && !(hasTitle && b.index === 0));
   if (!moving.length) return false;
 
-  const min = Math.min(...fromIndices);
-  const max = Math.max(...fromIndices);
+  const min = Math.min(...moving.map((m) => m.index));
+  const max = Math.max(...moving.map((m) => m.index));
   // Dropping within the moved range is a no-op.
   if (targetIndex >= min && targetIndex <= max + 1) return false;
-  if (targetIndex < 0 || targetIndex > blocks.length) return false;
+
+  // Never land above the page title.
+  const clampedTarget = hasTitle ? Math.max(1, targetIndex) : targetIndex;
+  if (clampedTarget < 0 || clampedTarget > blocks.length) return false;
 
   const nodes = moving.map((m) => m.node);
   const removedBefore = moving
-    .filter((m) => m.index < targetIndex)
+    .filter((m) => m.index < clampedTarget)
     .reduce((sum, m) => sum + m.node.nodeSize, 0);
 
   return editor
@@ -102,10 +119,10 @@ export function moveBlocks(editor: Editor, fromIndices: number[], targetIndex: n
         tr.delete(m.pos, m.to);
       }
       let insertPos: number;
-      if (targetIndex >= blocks.length) {
+      if (clampedTarget >= blocks.length) {
         insertPos = tr.doc.content.size;
       } else {
-        insertPos = clamp(blocks[targetIndex].pos - removedBefore, 0, tr.doc.content.size);
+        insertPos = clamp(blocks[clampedTarget].pos - removedBefore, 0, tr.doc.content.size);
       }
       tr.insert(insertPos, nodes);
       tr.setSelection(NodeSelection.create(tr.doc, insertPos));
@@ -119,8 +136,20 @@ export function moveBlocks(editor: Editor, fromIndices: number[], targetIndex: n
 export function moveBlockByStep(editor: Editor, direction: -1 | 1): boolean {
   const info = currentBlock(editor);
   if (!info) return false;
+  // The page title never moves.
+  if (info.index === 0 && info.node.type.name === "pageTitle") return false;
   const targetIndex = direction === -1 ? info.index - 1 : info.index + 2;
   return moveBlocks(editor, [info.index], targetIndex);
+}
+
+// Dev-only debug handle for E2E verification of block operations.
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+  (window as unknown as { __blockUtils?: unknown }).__blockUtils = {
+    moveBlocks,
+    moveBlockByStep,
+    getTopLevelBlocks,
+    blockInfoFromPos,
+  };
 }
 
 /** Duplicate the current top-level block (including nested children). */

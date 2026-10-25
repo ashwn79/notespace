@@ -143,7 +143,13 @@ export function BlockHandle({
     };
   }, [menuOpen]);
 
-  /* ---------------- drag & drop ---------------- */
+  /* ---------------- drag & drop ----------------
+   *
+   * The drop targets are wired with native listeners on the content
+   * container: HTML5 drag events on React elements were never fired here
+   * (the drag source is the grip button, so `drop` only lands on elements
+   * that opt in via dragover+preventDefault — this effect is that opt-in).
+   */
   const computeDropIndex = (clientY: number): number | null => {
     const blocks = getTopLevelBlocks(editor);
     for (const block of blocks) {
@@ -174,6 +180,8 @@ export function BlockHandle({
   const onDragStart = (e: React.DragEvent) => {
     const anchor = hoveredBlock.current;
     if (!anchor) return;
+    // The page title is anchored to the top of the page — it never moves.
+    if (anchor.node.type.name === "pageTitle") return;
 
     // Multi-block: drag everything the selection covers.
     const { selection } = editor.state;
@@ -195,21 +203,14 @@ export function BlockHandle({
     buildGhost(blocks);
     if (ghostRef.current) {
       e.dataTransfer.setDragImage(ghostRef.current, 24, 16);
-      window.setTimeout(() => {
-        ghostRef.current?.remove();
-        ghostRef.current = null;
-      }, 0);
     }
 
     // Select the dragged range for context.
     if (blocks.length === 1) selectBlock(editor, anchor);
   };
 
-  const onDragOver = (e: React.DragEvent) => {
-    if (!dragPayload.current) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const dropIndex = computeDropIndex(e.clientY);
+  const positionIndicator = (clientY: number) => {
+    const dropIndex = computeDropIndex(clientY);
     const indicator = indicatorRef.current;
     if (!indicator || dropIndex === null || !contentRef.current) return;
 
@@ -222,7 +223,7 @@ export function BlockHandle({
       y = rect ? rect.bottom : contentRect.bottom;
     } else {
       const rect = blocks[dropIndex]?.dom?.getBoundingClientRect();
-      y = rect ? rect.top : e.clientY;
+      y = rect ? rect.top : clientY;
     }
     indicator.style.top = `${y - 1}px`;
     indicator.style.left = `${contentRect.left + 8}px`;
@@ -230,23 +231,50 @@ export function BlockHandle({
     indicator.style.opacity = "1";
   };
 
-  const endDrag = () => {
+  const endDrag = React.useCallback(() => {
     dragPayload.current = null;
     setDragging(false);
     if (indicatorRef.current) indicatorRef.current.style.opacity = "0";
-  };
+    ghostRef.current?.remove();
+    ghostRef.current = null;
+  }, []);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const payload = dragPayload.current;
-    const dropIndex = computeDropIndex(e.clientY);
-    if (payload && dropIndex !== null) {
-      moveBlocks(editor, payload.indices, dropIndex);
-    }
-    endDrag();
-  };
+  // Attach the drop-zone listeners once — handlers read state via refs.
+  React.useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
 
-  const onDragEnd = () => endDrag();
+    const onDragOver = (e: DragEvent) => {
+      if (!dragPayload.current) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      positionIndicator(e.clientY);
+    };
+
+    const onDrop = (e: DragEvent) => {
+      if (!dragPayload.current) return;
+      e.preventDefault();
+      const dropIndex = computeDropIndex(e.clientY);
+      if (dropIndex !== null) {
+        moveBlocks(editor, dragPayload.current.indices, dropIndex);
+      }
+      endDrag();
+    };
+
+    const onDragEnd = () => endDrag();
+
+    el.addEventListener("dragover", onDragOver);
+    el.addEventListener("drop", onDrop);
+    document.addEventListener("dragend", onDragEnd);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      el.removeEventListener("dragover", onDragOver);
+      el.removeEventListener("drop", onDrop);
+      document.removeEventListener("dragend", onDragEnd);
+      document.removeEventListener("drop", onDrop);
+    };
+     
+  }, [editor, contentRef, endDrag]);
 
   /* ---------------- actions ---------------- */
   const openMenu = () => {
@@ -335,7 +363,7 @@ export function BlockHandle({
           aria-label="Block options"
           draggable
           onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
+          onDragEnd={endDrag}
           onClick={openMenu}
         >
           <GripVertical size={15} />

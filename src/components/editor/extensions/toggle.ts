@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, NodeSelection } from "@tiptap/pm/state";
+import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { ToggleView } from "../nodes/toggle-view";
 
@@ -49,12 +50,80 @@ export const ToggleBlock = Node.create({
     return ReactNodeViewRenderer(ToggleView);
   },
 
+  addKeyboardShortcuts() {
+    return {
+      // Mod+Enter toggles the surrounding toggle open/closed (Notion parity).
+      "Mod-Enter": ({ editor }) => editor.commands.toggleOpenState(),
+    };
+  },
+
   addCommands() {
     return {
       setToggleBlock:
         () =>
-        ({ commands }) =>
-          commands.wrapIn(this.name, {}),
+        ({ editor, chain }) => {
+          const { state } = editor;
+          const { selection } = state;
+          const { $from } = selection;
+          const toggleType = state.schema.nodes.toggleBlock;
+          const headerType = state.schema.nodes.toggleHeader;
+          if (!toggleType || !headerType) return false;
+
+          // Already inside a toggle header → unwrap to a plain paragraph.
+          if ($from.parent.type.name === "toggleHeader") {
+            const togglePos = $from.before($from.depth - 1);
+            const toggleNode = state.doc.resolve(togglePos).nodeAfter;
+            if (!toggleNode) return false;
+            return chain().command(({ tr }) => {
+              const blocks: PMNode[] = [];
+              toggleNode.forEach((child) => {
+                if (child.type.name === "toggleHeader") {
+                  blocks.push(state.schema.nodes.paragraph.create(null, child.content, child.marks));
+                } else {
+                  blocks.push(child);
+                }
+              });
+              tr.replaceWith(togglePos, togglePos + toggleNode.nodeSize, blocks);
+              tr.scrollIntoView();
+              return true;
+            }).run();
+          }
+
+          // Convert the current top-level block into a toggle:
+          // its inline content becomes the header, an empty body follows.
+          const blockRange = selection.$from.blockRange(selection.$to) ?? null;
+          if (!blockRange) return false;
+          const startParent = selection.$from.parent;
+
+          return chain()
+            .command(({ tr }) => {
+              let targetFrom = blockRange.start;
+              let targetTo = blockRange.end;
+              let headerContent: Fragment | null = null;
+              let bodyContent: PMNode[] = [];
+
+              if (startParent.type.spec.content === "inline*") {
+                headerContent = startParent.content;
+              } else if (selection instanceof NodeSelection) {
+                // Atom block (image etc.) — keep it in the toggle body.
+                bodyContent = [startParent];
+                targetFrom = selection.from;
+                targetTo = selection.to;
+              } else {
+                bodyContent = [...(state.doc.slice(blockRange.start, blockRange.end)?.content.content ?? [])];
+              }
+
+              const header = headerType.create(null, headerContent ?? Fragment.empty);
+              const body = bodyContent.length ? bodyContent : [state.schema.nodes.paragraph.create()];
+              const toggle = toggleType.create({ open: true }, [header, ...body]);
+              tr.replaceWith(targetFrom, targetTo, toggle);
+              const headerEnd = targetFrom + 1 + header.content.size + 1;
+              tr.setSelection(TextSelection.near(tr.doc.resolve(headerEnd), 1));
+              tr.scrollIntoView();
+              return true;
+            })
+            .run();
+        },
       toggleOpenState:
         () =>
         ({ editor }) => {
@@ -119,7 +188,8 @@ export const ToggleHeader = Node.create({
 
       Backspace: ({ editor }) => {
         if (!isHeader(editor)) return false;
-        const { state, selection } = editor;
+        const { state } = editor;
+        const { selection } = state;
         const { $from, empty } = selection;
         if (!empty || $from.parentOffset !== 0) return false;
         if ($from.parent.content.size > 0) return false;
@@ -132,7 +202,7 @@ export const ToggleHeader = Node.create({
 
         return editor.commands.command(({ tr }) => {
           const schema = state.schema;
-          const blocks = [];
+          const blocks: PMNode[] = [];
           toggleNode.forEach((child) => {
             if (child.type.name === "toggleHeader") {
               blocks.push(schema.nodes.paragraph.create(child.attrs, child.content, child.marks));

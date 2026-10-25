@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlignCenter, AlignLeft, Maximize2, X } from "lucide-react";
 import type { MediaAlign } from "@/lib/editor/types";
 import { cn } from "@/lib/utils";
+import { UploadOverlay } from "./media-views";
 
 /**
  * Image block — resizable, alignable, captioned, with a lightbox preview.
@@ -23,14 +24,31 @@ export function ImageView(props: NodeViewProps) {
     width: number;
     align: MediaAlign;
   };
+  const uploadAttrs = node.attrs as {
+    uploadId?: string | null;
+    uploading?: boolean;
+    progress?: number;
+    uploadError?: boolean;
+  };
 
   const [liveWidth, setLiveWidth] = React.useState<number | null>(null);
   const [lightbox, setLightbox] = React.useState(false);
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const dragState = React.useRef<{ startX: number; startPct: number; columnWidth: number } | null>(null);
 
-  const setAlign = (next: MediaAlign) => updateAttributes({ align: next });
+  const setAlign = (next: MediaAlign) => {
+    // Full-width owns the size — dropping out of full restores 100%.
+    if (next === "full") updateAttributes({ align: "full", width: 100 });
+    else updateAttributes({ align: next, ...(align === "full" ? { width: 100 } : {}) });
+  };
 
+  /*
+   * Resize math — direction encodes which edge the handle sits on:
+   *   LEFT handle (-1): dragging left (clientX ↓) must GROW the image
+   *   RIGHT handle (+1): dragging right (clientX ↑) must GROW the image
+   * The start offset is captured in the same multiplied space so the
+   * delta sign always means "grow".
+   */
   const onResizeStart = (event: React.PointerEvent, direction: 1 | -1) => {
     event.preventDefault();
     event.stopPropagation();
@@ -59,6 +77,7 @@ export function ImageView(props: NodeViewProps) {
   };
 
   const displayWidth = liveWidth ?? width;
+  const effectiveWidth = align === "full" ? 100 : displayWidth;
 
   return (
     <NodeViewWrapper
@@ -68,7 +87,7 @@ export function ImageView(props: NodeViewProps) {
       data-selected={props.selected ? "true" : undefined}
     >
       <figure
-        style={{ width: `${displayWidth}%` }}
+        style={{ width: `${effectiveWidth}%` }}
         className={cn(
           "relative",
           align === "center" && "mx-auto",
@@ -86,20 +105,22 @@ export function ImageView(props: NodeViewProps) {
           className="w-full"
         />
 
-        {/* Resize handles */}
+        <UploadOverlay editor={editor} attrs={uploadAttrs} label={alt || "Uploading image…"} />
+
+        {/* Resize handles — left handle grows when dragged left (-1) */}
         <div
           role="separator"
           aria-label="Resize image"
-          onPointerDown={(e) => onResizeStart(e, 1)}
-          onPointerMove={(e) => onResizeMove(e, 1)}
+          onPointerDown={(e) => onResizeStart(e, -1)}
+          onPointerMove={(e) => onResizeMove(e, -1)}
           onPointerUp={onResizeEnd}
           className="resize-handle left-[-8px]"
         />
         <div
           role="separator"
           aria-label="Resize image"
-          onPointerDown={(e) => onResizeStart(e, -1)}
-          onPointerMove={(e) => onResizeMove(e, -1)}
+          onPointerDown={(e) => onResizeStart(e, 1)}
+          onPointerMove={(e) => onResizeMove(e, 1)}
           onPointerUp={onResizeEnd}
           className="resize-handle right-[-8px]"
         />
@@ -107,6 +128,7 @@ export function ImageView(props: NodeViewProps) {
         {/* Alignment toolbar */}
         <div
           contentEditable={false}
+          onMouseDown={(e) => e.preventDefault()}
           className="absolute right-2 top-2 z-10 flex items-center gap-0.5 rounded-lg border border-white/10 bg-black/55 p-1 opacity-0 shadow-lg backdrop-blur-md transition-opacity duration-150 group-hover:opacity-100"
         >
           <ToolButton active={align === "left"} onClick={() => setAlign("left")} title="Align left">
@@ -120,7 +142,7 @@ export function ImageView(props: NodeViewProps) {
           </ToolButton>
         </div>
 
-        <NodeViewContent as="figcaption" data-placeholder="Write a caption…" className="image-caption" />
+        <NodeViewContent<"figcaption"> as="figcaption" data-placeholder="Write a caption…" className="image-caption" />
       </figure>
 
       {lightbox

@@ -9,9 +9,9 @@ export const DEMO_CONTENT: JSONContent = {
   type: "doc",
   content: [
     {
-      type: "heading",
-      attrs: { level: 1 },
-      content: [{ type: "text", text: "Welcome to Aurora ✨" }],
+      type: "pageTitle",
+      attrs: { icon: "✨" },
+      content: [{ type: "text", text: "Welcome to Aurora" }],
     },
     {
       type: "paragraph",
@@ -22,9 +22,24 @@ export const DEMO_CONTENT: JSONContent = {
         { type: "text", marks: [{ type: "italic" }], text: "beautiful" },
         { type: "text", text: " defaults. Hover any block for its " },
         { type: "text", marks: [{ type: "bold" }], text: "drag handle" },
-        { type: "text", text: ", or press " },
+        { type: "text", text: ", press " },
         { type: "text", marks: [{ type: "code" }], text: "/" },
-        { type: "text", text: " anywhere to open the command menu." },
+        { type: "text", text: " for the command menu, or " },
+        { type: "text", marks: [{ type: "code" }], text: "@" },
+        { type: "text", text: " to mention people, dates and pages." },
+      ],
+    },
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "Kickoff with " },
+        { type: "mention", attrs: { mentionType: "person", name: "Priya Sharma" } },
+        { type: "text", text: " on " },
+        {
+          type: "mention",
+          attrs: { mentionType: "date", date: "2026-12-24", format: "relative", includeTime: false, startTime: "", endTime: "", endDate: null, reminder: null },
+        },
+        { type: "text", text: " — click the date chip to open its panel." },
       ],
     },
     {
@@ -221,6 +236,35 @@ export const DEMO_CONTENT: JSONContent = {
         {
           type: "paragraph",
           content: [{ type: "text", text: "Everything inside stays fully editable and searchable." }],
+        },
+      ],
+    },
+    {
+      type: "heading",
+      attrs: { level: 2 },
+      content: [{ type: "text", text: "Columns organize content side by side" }],
+    },
+    {
+      type: "columns",
+      content: [
+        {
+          type: "column",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "Columns hold any blocks. Hover the layout for controls — add a column or remove one (its content is kept)." }],
+            },
+          ],
+        },
+        {
+          type: "column",
+          content: [
+            {
+              type: "callout",
+              attrs: { emoji: "🚀", variant: "info" },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "Blocks stay fully interactive inside columns." }] }],
+            },
+          ],
         },
       ],
     },

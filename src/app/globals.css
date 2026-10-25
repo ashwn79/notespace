@@ -407,7 +407,8 @@
   font-family: inherit;
   color: #d6d9de;
 }
-.rich-editor .tiptap .code-block.collapsed pre {
+.rich-editor .tiptap .code-block.collapsed pre,
+.rich-editor .tiptap .code-block[data-collapsed="true"] pre {
   display: none;
 }
 .rich-editor .tiptap .code-block code.wrap-lines,
@@ -572,16 +573,21 @@
   background: var(--editor-hover);
   color: var(--foreground);
 }
-.rich-editor .tiptap .toggle-block[data-open="false"] > .toggle-chevron-btn {
-  transform: rotate(-90deg);
-}
-.rich-editor .tiptap .toggle-block .toggle-content > [data-header] {
-  font-weight: 500;
-}
-.rich-editor .tiptap .toggle-block[data-open="false"] .toggle-content > [data-header] ~ * {
-  display: none;
+.rich-editor .tiptap .toggle-block[data-open="true"] > .toggle-chevron-btn {
+  transform: rotate(90deg);
 }
 .rich-editor .tiptap .toggle-content { padding-left: 0; }
+/* TipTap React nests children in a data-node-view-content-react wrapper —
+   neutralize it for layout and use descendant selectors for collapse. */
+.rich-editor .tiptap .toggle-content > [data-node-view-content-react] {
+  display: contents;
+}
+.rich-editor .tiptap .toggle-content [data-header] {
+  font-weight: 500;
+}
+.rich-editor .tiptap .toggle-block[data-open="false"] .toggle-content [data-header] ~ * {
+  display: none;
+}
 
 /* Images ------------------------------------------------------------------------ */
 .rich-editor .tiptap .image-block {
@@ -591,6 +597,17 @@
 .rich-editor .tiptap .image-block figure {
   position: relative;
   margin: 0;
+}
+/* Full-width breakout — extends past the text column on wide screens */
+@media (min-width: 768px) {
+  .rich-editor .tiptap .image-block[data-align="full"] {
+    margin-inline: -44px;
+  }
+}
+@media (min-width: 1024px) {
+  .rich-editor .tiptap .image-block[data-align="full"] {
+    margin-inline: -56px;
+  }
 }
 .rich-editor .tiptap .image-block img {
   display: block;
@@ -667,6 +684,7 @@
   display: block;
 }
 .rich-editor .tiptap .file-block {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -900,4 +918,272 @@
 .editor-icon-btn[data-active="true"] {
   background: color-mix(in oklab, var(--primary) 16%, transparent);
   color: var(--primary);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page title (first block of every page)                             */
+/* ------------------------------------------------------------------ */
+
+.rich-editor .tiptap .page-title-block {
+  position: relative;
+  margin: 4px 0 6px;
+}
+.rich-editor .tiptap .page-title-content {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  padding: 2px 0 6px;
+  outline: none;
+  min-height: 1.2em;
+  word-break: break-word;
+}
+.rich-editor .tiptap [data-page-title-content].is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.page-icon-row {
+  display: flex;
+  margin-bottom: 6px;
+}
+.page-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px 6px;
+  color: var(--muted-foreground);
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+.page-icon-btn:hover {
+  background: var(--editor-hover);
+  transform: scale(1.04);
+}
+/* No icon yet → the affordance appears on hover only (Notion behavior) */
+.page-title-block:not([data-has-icon="true"]) .page-icon-row {
+  opacity: 0;
+  height: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  transition: opacity 140ms ease, height 140ms ease;
+}
+.page-title-block:not([data-has-icon="true"]):hover .page-icon-row,
+.page-title-block:not([data-has-icon="true"]):focus-within .page-icon-row {
+  opacity: 1;
+  height: 56px;
+  margin-bottom: 6px;
+  overflow: visible;
+}
+.page-title-block:not([data-has-icon="true"]) .page-icon-btn {
+  height: 44px;
+  min-width: 44px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Mention chips — typographically neutral inline elements.           */
+/*  They inherit font-size / line-height and sit on the baseline so    */
+/*  inserting one never changes the paragraph's layout metrics.        */
+/* ------------------------------------------------------------------ */
+
+.mention-wrapper {
+  display: inline;
+}
+.rich-editor .tiptap .mention-chip {
+  display: inline-flex;
+  align-items: baseline;
+  vertical-align: baseline;
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0.06em 0.4em;
+  margin: 0 0.08em;
+  border-radius: 0.4em;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.rich-editor .tiptap .mention-chip:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+}
+.rich-editor .tiptap .mention-chip[data-selected="true"],
+.rich-editor .tiptap .mention-chip.ProseMirror-selectednode {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 45%, transparent);
+}
+.rich-editor .tiptap .mention-chip .chip-icon {
+  width: 0.92em;
+  height: 0.92em;
+  align-self: center;
+  margin-right: 0.32em;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.rich-editor .tiptap .mention-chip .chip-label {
+  display: inline;
+  font-size: inherit;
+  line-height: inherit;
+}
+.rich-editor .tiptap .mention-chip-date .chip-icon {
+  color: var(--primary);
+}
+.rich-editor .tiptap .mention-chip-page .chip-icon {
+  color: var(--muted-foreground);
+}
+.rich-editor .tiptap .mention-chip .chip-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.18em;
+  height: 1.18em;
+  margin-right: 0.34em;
+  border-radius: 999px;
+  color: white;
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.25);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Columns layout                                                     */
+/* ------------------------------------------------------------------ */
+
+.rich-editor .tiptap .columns-block {
+  position: relative;
+  margin: 10px 0;
+}
+.rich-editor .tiptap .columns-grid {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+/* Columns stack on small screens for readability */
+@media (max-width: 640px) {
+  .rich-editor .tiptap .columns-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+.rich-editor .tiptap .columns-grid > [data-node-view-content-react] {
+  display: contents;
+}
+.rich-editor .tiptap .columns-grid [data-column] {
+  min-width: 0;
+  border: 1px dashed transparent;
+  border-radius: 10px;
+  padding: 2px;
+  transition: border-color 140ms ease;
+}
+.rich-editor .tiptap .columns-block:hover .columns-grid > [data-column] {
+  border-color: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+.column-add-btn,
+.column-remove-btn {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 130ms ease, background-color 130ms ease, color 130ms ease;
+  z-index: 6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.column-add-btn {
+  top: -11px;
+  right: -4px;
+}
+.column-remove-btn {
+  top: -11px;
+}
+.columns-block:hover .column-add-btn,
+.columns-block:hover .column-remove-btn {
+  opacity: 1;
+}
+.column-add-btn:hover,
+.column-remove-btn:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Optimistic upload overlays                                         */
+/* ------------------------------------------------------------------ */
+
+.upload-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 10px;
+  z-index: 8;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.45), transparent 55%);
+  border-radius: 12px;
+}
+.upload-overlay-card {
+  pointer-events: auto;
+  width: min(260px, 92%);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(12, 12, 14, 0.78);
+  backdrop-filter: blur(8px);
+  padding: 8px 10px;
+  color: #e8e8ec;
+}
+.upload-progress-track {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.upload-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), color-mix(in oklab, var(--primary) 55%, white));
+  transition: width 160ms ease;
+}
+
+/* Audio block --------------------------------------------------------- */
+.rich-editor .tiptap .audio-block {
+  margin: 8px 0;
+  position: relative;
+}
+.rich-editor .tiptap .audio-block .audio-block-inner {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 8px 12px;
+  max-width: 560px;
+}
+.rich-editor .tiptap .audio-block audio {
+  width: 100%;
+  height: 36px;
+  outline: none;
+}
+.rich-editor .tiptap .audio-block [contenteditable="false"] {
+  border: none;
+  background: transparent;
 }

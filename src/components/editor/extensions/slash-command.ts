@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import type { Editor, Range } from "@tiptap/core";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
+import { PluginKey } from "@tiptap/pm/state";
 import type { SlashItem } from "../menus/slash-items";
 
 /**
@@ -11,7 +12,7 @@ import type { SlashItem } from "../menus/slash-items";
 export interface SlashActionContext {
   editor: Editor;
   range: Range;
-  requestUpload: (kind: "image" | "video" | "file") => void;
+  requestUpload: (kind: "image" | "video" | "audio" | "file") => void;
   requestEmoji: (editor: Editor) => void;
   requestEmbed: () => void;
   requestMath: (editor: Editor, inline: boolean) => void;
@@ -65,6 +66,7 @@ export const SlashCommand = Extension.create<{ getActionContext: () => SlashActi
     return [
       Suggestion<SlashItem>({
         editor: this.editor,
+        pluginKey: new PluginKey("slashMenu"),
         char: "/",
         startOfLine: false,
         allowSpaces: true,

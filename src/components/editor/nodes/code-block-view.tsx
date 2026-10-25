@@ -165,7 +165,7 @@ export function CodeBlockView({ node, updateAttributes, deleteNode }: NodeViewPr
           </div>
         )}
         <pre className={cn("min-w-0 flex-1", wrapped && "wrap-lines")}>
-          <NodeViewContent
+          <NodeViewContent<"code">
             as="code"
             data-language={language}
             className={cn(wrapped && "wrap-lines")}

@@ -1,16 +1,19 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { EmbedView, FileView, VideoView } from "../nodes/media-views";
+import { EmbedView, AudioView, FileView, VideoView } from "../nodes/media-views";
+import { uploadStateAttrs } from "./image-block";
 
 /**
- * Media blocks — uploaded videos, file attachments and URL embeds.
+ * Media blocks — uploaded videos, audio, file attachments and URL embeds.
  * All are draggable atoms so the block handle can move them around.
+ * Video / audio / file share the optimistic upload state attributes.
  */
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     media: {
       insertVideo: (attrs: { src: string; name?: string }) => ReturnType;
+      insertAudio: (attrs: { src: string; name?: string }) => ReturnType;
       insertFile: (attrs: { src: string; name: string; size: number; type: string }) => ReturnType;
       insertEmbed: (src: string) => ReturnType;
     };
@@ -28,6 +31,7 @@ export const VideoBlock = Node.create({
     return {
       src: { default: null },
       name: { default: "" },
+      ...uploadStateAttrs,
     };
   },
 
@@ -53,6 +57,43 @@ export const VideoBlock = Node.create({
   },
 });
 
+export const AudioBlock = Node.create({
+  name: "audioBlock",
+  group: "block",
+  atom: true,
+  draggable: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      src: { default: null },
+      name: { default: "" },
+      ...uploadStateAttrs,
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: "audio[src]" }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ["audio", mergeAttributes(HTMLAttributes, { controls: "", preload: "metadata" })];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(AudioView);
+  },
+
+  addCommands() {
+    return {
+      insertAudio:
+        (attrs) =>
+        ({ chain }) =>
+          chain().insertContent({ type: this.name, attrs }).run(),
+    };
+  },
+});
+
 export const FileBlock = Node.create({
   name: "fileBlock",
   group: "block",
@@ -66,6 +107,7 @@ export const FileBlock = Node.create({
       name: { default: "file" },
       size: { default: 0 },
       type: { default: "application/octet-stream" },
+      ...uploadStateAttrs,
     };
   },
 

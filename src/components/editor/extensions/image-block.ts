@@ -6,7 +6,36 @@ import { ImageView } from "../nodes/image-view";
 /**
  * Notion-style image block: block-level figure with caption, resize
  * percentage, alignment and lazy loading.
+ *
+ * The `upload*` attributes drive the optimistic upload state — the node
+ * appears instantly with a local Blob URL while the real upload runs.
  */
+
+export const uploadStateAttrs = {
+  uploadId: {
+    default: null,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-upload-id"),
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.uploadId ? { "data-upload-id": String(attributes.uploadId) } : {},
+  },
+  uploading: {
+    default: false,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-uploading") === "true",
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.uploading ? { "data-uploading": "true" } : {},
+  },
+  progress: {
+    default: 0,
+    parseHTML: (element: HTMLElement) => Number(element.getAttribute("data-progress") ?? 0),
+    renderHTML: () => ({}), // transient — progress lives in the overlay only
+  },
+  uploadError: {
+    default: false,
+    parseHTML: (element: HTMLElement) => element.getAttribute("data-upload-error") === "true",
+    renderHTML: (attributes: Record<string, unknown>) =>
+      attributes.uploadError ? { "data-upload-error": "true" } : {},
+  },
+};
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -29,6 +58,7 @@ export const ImageBlock = Node.create({
       alt: { default: "" },
       width: { default: 100 },
       align: { default: "center" as MediaAlign },
+      ...uploadStateAttrs,
     };
   },
 

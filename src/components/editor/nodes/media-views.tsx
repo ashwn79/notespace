@@ -11,14 +11,107 @@ import {
   FileCode,
   FileJson,
   FileText,
+  RotateCw,
   Trash2,
 } from "lucide-react";
 import { formatBytes } from "@/lib/editor/utils";
+import { retryUploadForNode, abortUpload } from "@/lib/editor/upload-manager";
+import type { Editor } from "@tiptap/core";
 
 /**
- * Video, file attachment and embed node views.
- * Each has a compact hover toolbar (delete / open) outside the editable flow.
+ * Video, audio, file attachment and embed node views.
+ * Each carries a compact hover toolbar and — while an optimistic upload
+ * is in flight — a non-blocking progress overlay (plus retry on failure).
+ * The local Blob preview stays fully interactive during upload.
  */
+
+interface UploadAttrs {
+  uploadId?: string | null;
+  uploading?: boolean;
+  progress?: number;
+  uploadError?: boolean;
+  name?: string;
+}
+
+export function UploadOverlay({ editor, attrs, label }: { editor: Editor; attrs: UploadAttrs; label?: string }) {
+  if (!attrs.uploading && !attrs.uploadError) return null;
+  return <UploadOverlayInner editor={editor} attrs={attrs} label={label} />;
+}
+
+function UploadOverlayInner({
+  editor,
+  attrs,
+  label,
+}: {
+  editor: Editor;
+  attrs: UploadAttrs;
+  label?: string;
+}) {
+  if (attrs.uploading) {
+    return (
+      <div contentEditable={false} className="upload-overlay" aria-live="polite">
+        <div className="upload-overlay-card">
+          <div className="flex items-center justify-between gap-3 text-[11.5px] font-medium">
+            <span className="truncate">{label ?? "Uploading…"}</span>
+            <span className="tabular-nums text-muted-foreground">{attrs.progress ?? 0}%</span>
+          </div>
+          <div className="upload-progress-track">
+            <div className="upload-progress-fill" style={{ width: `${attrs.progress ?? 0}%` }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div contentEditable={false} className="upload-overlay" role="alert">
+      <div className="upload-overlay-card">
+        <div className="text-[11.5px] font-medium text-red-300">Upload failed</div>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => attrs.uploadId && retryUploadForNode(editor, attrs.uploadId)}
+            className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-white/20"
+          >
+            <RotateCw size={11} /> Retry
+          </button>
+          <button
+            type="button"
+            onClick={() => deleteUploadNode(editor, attrs.uploadId)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:bg-white/10"
+          >
+            <Trash2 size={11} /> Remove
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Remove a media node by its upload id (used by the error overlay). */
+function deleteUploadNode(editor: Editor, uploadId?: string | null) {
+  if (!uploadId) return;
+  abortUpload(uploadId);
+  const { state } = editor;
+  let target: { pos: number; size: number } | null = null;
+  state.doc.descendants((node, pos) => {
+    if (!target && node.attrs.uploadId === uploadId) {
+      target = { pos, size: node.nodeSize };
+      return false;
+    }
+    return true;
+  });
+  if (target) {
+    const { pos, size } = target;
+    editor.view.dispatch(state.tr.delete(pos, pos + size));
+  }
+}
+
+/** Delete a media node while its upload may still be running. */
+export function deleteMediaNode(deleteNode: () => void, attrs: UploadAttrs) {
+  if (attrs.uploadId) abortUpload(attrs.uploadId);
+  deleteNode();
+}
 
 function HoverActions({ children }: { children: React.ReactNode }) {
   return (
@@ -63,16 +156,39 @@ function ActionButton({
   );
 }
 
-export function VideoView({ node, deleteNode }: NodeViewProps) {
+export function VideoView({ node, deleteNode, editor }: NodeViewProps) {
   const { src, name } = node.attrs as { src: string; name: string };
+  const attrs = node.attrs as UploadAttrs;
   return (
     <NodeViewWrapper className="video-block group">
       <video src={src} controls preload="metadata" />
+      <UploadOverlay editor={editor} attrs={attrs} label={name || "Uploading video…"} />
       <HoverActions>
         <ActionButton title={name || "Video"} href={src} download={name}>
           <Download size={14} />
         </ActionButton>
-        <ActionButton title="Delete video" onClick={deleteNode} danger>
+        <ActionButton title="Delete video" onClick={() => deleteMediaNode(deleteNode, attrs)} danger>
+          <Trash2 size={14} />
+        </ActionButton>
+      </HoverActions>
+    </NodeViewWrapper>
+  );
+}
+
+export function AudioView({ node, deleteNode, editor }: NodeViewProps) {
+  const { src, name } = node.attrs as { src: string; name: string };
+  const attrs = node.attrs as UploadAttrs;
+  return (
+    <NodeViewWrapper className="audio-block group">
+      <div className="audio-block-inner">
+        <audio src={src} controls preload="metadata" className="min-w-0 flex-1" />
+      </div>
+      <UploadOverlay editor={editor} attrs={attrs} label={name || "Uploading audio…"} />
+      <HoverActions>
+        <ActionButton title={name || "Audio"} href={src} download={name}>
+          <Download size={14} />
+        </ActionButton>
+        <ActionButton title="Delete audio" onClick={() => deleteMediaNode(deleteNode, attrs)} danger>
           <Trash2 size={14} />
         </ActionButton>
       </HoverActions>
@@ -89,13 +205,14 @@ function renderFileIcon(type: string) {
   return <FileIcon size={19} strokeWidth={1.7} />;
 }
 
-export function FileView({ node, deleteNode }: NodeViewProps) {
+export function FileView({ node, deleteNode, editor }: NodeViewProps) {
   const { src, name, size, type } = node.attrs as {
     src: string;
     name: string;
     size: number;
     type: string;
   };
+  const attrs = node.attrs as UploadAttrs;
   return (
     <NodeViewWrapper className="group w-fit">
       <div className="file-block">
@@ -113,10 +230,11 @@ export function FileView({ node, deleteNode }: NodeViewProps) {
           <ActionButton title="Download" href={src} download={name}>
             <Download size={14} />
           </ActionButton>
-          <ActionButton title="Delete attachment" onClick={deleteNode} danger>
+          <ActionButton title="Delete attachment" onClick={() => deleteMediaNode(deleteNode, attrs)} danger>
             <Trash2 size={14} />
           </ActionButton>
         </div>
+        <UploadOverlay editor={editor} attrs={attrs} label={name} />
       </div>
     </NodeViewWrapper>
   );

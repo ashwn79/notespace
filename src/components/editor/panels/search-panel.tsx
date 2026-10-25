@@ -48,14 +48,20 @@ export function SearchPanel({
     return () => window.clearTimeout(t);
   }, [term, caseSensitive, editor]);
 
-  // Reset when closed.
+  // Reset when closed. (Skipped on first mount — the plugin state is
+  // already empty, and dispatching before the view settles can race
+  // editor initialization under StrictMode.)
+  const everOpened = React.useRef(false);
   React.useEffect(() => {
     if (!open) {
-      editor.commands.setSearchTerm("");
-      setTerm("");
-      setReplacement("");
+      if (everOpened.current) {
+        editor.commands.setSearchTerm("");
+        setTerm("");
+        setReplacement("");
+      }
       return;
     }
+    everOpened.current = true;
     window.setTimeout(() => inputRef.current?.focus(), 60);
   }, [open, editor]);
 

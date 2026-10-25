@@ -22,13 +22,14 @@ import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { fetchDocument, uploadFile } from "@/lib/editor/api";
+import { fetchDocument } from "@/lib/editor/api";
 import type { SaveStatus } from "@/lib/editor/types";
 import { DEMO_CONTENT } from "@/lib/editor/demo-content";
-import { formatBytes } from "@/lib/editor/utils";
+import { insertOptimisticMedia } from "@/lib/editor/upload-manager";
 
 import { buildExtensions } from "./core/extensions";
 import { SlashMenu } from "./menus/slash-menu";
+import { MentionMenu } from "./menus/mention-menu";
 import type { SlashActionHelpers } from "./extensions/slash-command";
 import { FloatingToolbar } from "./menus/floating-toolbar";
 import { ContextMenu, type ContextMenuState } from "./menus/context-menu";
@@ -42,14 +43,18 @@ import { useAutosave } from "./hooks/use-autosave";
 
 /**
  * EditorPage — the full application shell:
- * header (title + tools) · scrollable document surface · status footer.
+ * header (tools) · scrollable document surface (page title first) · status footer.
  */
 
-type UploadKind = "image" | "video" | "file";
+type UploadKind = "image" | "video" | "audio" | "file";
+
+/** The JSON shape a fresh document starts with (page title first). */
+function emptyDocumentJSON(): JSONContent {
+  return { type: "doc", content: [{ type: "pageTitle", content: [] }] };
+}
 
 export default function EditorPage() {
   const [ready, setReady] = React.useState(false);
-  const [title, setTitle] = React.useState("");
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
   const [emojiAnchor, setEmojiAnchor] = React.useState<DOMRect | null>(null);
@@ -59,7 +64,6 @@ export default function EditorPage() {
   const contentRef = React.useRef<HTMLDivElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const uploadKindRef = React.useRef<UploadKind>("image");
-  const dropInsertPos = React.useRef<number | undefined>(undefined);
 
   /* ------------------------------------------------ helpers (slash actions) */
   const requestUpload = React.useCallback((kind: UploadKind) => {
@@ -67,56 +71,16 @@ export default function EditorPage() {
     const input = fileInputRef.current;
     if (input) {
       input.accept =
-        kind === "image" ? "image/*" : kind === "video" ? "video/*" : "*/*";
+        kind === "image"
+          ? "image/*"
+          : kind === "video"
+            ? "video/*"
+            : kind === "audio"
+              ? "audio/*"
+              : "*/*";
       input.click();
     }
   }, []);
-
-  const insertUpload = React.useCallback(
-    (editor: Editor, result: { url: string; name: string; size: number; type: string }, kind: UploadKind) => {
-      const node: JSONContent =
-        kind === "image"
-          ? { type: "imageBlock", attrs: { src: result.url, alt: result.name, width: 100, align: "center" } }
-          : kind === "video"
-            ? { type: "videoBlock", attrs: { src: result.url, name: result.name } }
-            : { type: "fileBlock", attrs: { src: result.url, name: result.name, size: result.size, type: result.type } };
-      editor
-        .chain()
-        .focus()
-        .insertContentAt(dropInsertPos.current ?? editor.state.selection.to, node)
-        .run();
-      dropInsertPos.current = undefined;
-    },
-    [],
-  );
-
-  const handleFiles = React.useCallback(
-    async (files: File[], editorInstance: Editor, insertPos?: number) => {
-      dropInsertPos.current = insertPos;
-      for (const file of files) {
-        const loadingToast = toast.loading(`Uploading ${file.name}…`, {
-          description: formatBytes(file.size),
-        });
-        try {
-          const result = await uploadFile(file);
-          toast.dismiss(loadingToast);
-          // Choose the block type from the actual mime type (handles
-          // drag-drop where the slash-menu kind is not authoritative).
-          const kind: UploadKind = file.type.startsWith("image")
-            ? "image"
-            : file.type.startsWith("video")
-              ? "video"
-              : "file";
-          insertUpload(editorInstance, result, kind);
-          toast.success(`${file.name} added`);
-        } catch (error) {
-          toast.dismiss(loadingToast);
-          toast.error(`Upload failed: ${error instanceof Error ? error.message : "unknown error"}`);
-        }
-      }
-    },
-    [insertUpload],
-  );
 
   /* ------------------------------------------------ slash action helpers */
   const requestEmoji = React.useCallback((editorInstance: Editor) => {
@@ -145,7 +109,7 @@ export default function EditorPage() {
   const editor = useEditor(
     {
       extensions: buildExtensions({ getActionContext: () => slashHelpers }),
-      content: { type: "doc", content: [{ type: "paragraph" }] },
+      content: emptyDocumentJSON(),
       immediatelyRender: false,
       autofocus: false,
       editorProps: {
@@ -158,15 +122,8 @@ export default function EditorPage() {
           const files = Array.from(event.clipboardData?.files ?? []);
           const editorInstance = editorRef.current;
           if (!files.length || !editorInstance) return false;
-          // Screenshots & copied files — pick the block kind by mime type.
-          for (const file of files) {
-            uploadKindRef.current = file.type.startsWith("image")
-              ? "image"
-              : file.type.startsWith("video")
-                ? "video"
-                : "file";
-            void handleFiles([file], editorInstance);
-          }
+          // Screenshots & copied files — optimistic insert, upload behind it.
+          insertOptimisticMedia(editorInstance, files);
           return true;
         },
         handleDrop: (view, event, _slice, moved) => {
@@ -175,14 +132,7 @@ export default function EditorPage() {
           const files = Array.from(event.dataTransfer?.files ?? []);
           if (!files.length) return false;
           const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-          for (const file of files) {
-            uploadKindRef.current = file.type.startsWith("image")
-              ? "image"
-              : file.type.startsWith("video")
-                ? "video"
-                : "file";
-            void handleFiles([file], editorInstance, coords?.pos);
-          }
+          insertOptimisticMedia(editorInstance, files, coords?.pos);
           return true;
         },
       },
@@ -192,10 +142,10 @@ export default function EditorPage() {
 
   /* ------------------------------------------------ keep editorRef fresh */
   React.useEffect(() => {
-    editorRef.current = editor;
+    editorRef.current = editor ?? null;
     // Debug handle for browser console testing (dev only).
     if (process.env.NODE_ENV !== "production") {
-      (window as unknown as { __editor?: Editor }).__editor = editor;
+      (window as unknown as { __editor?: Editor }).__editor = editor ?? undefined;
     }
   }, [editor]);
 
@@ -206,10 +156,13 @@ export default function EditorPage() {
     fetchDocument()
       .then((doc) => {
         if (cancelled) return;
-        setTitle(doc.title);
         if (doc.content && typeof doc.content === "object" && "type" in (doc.content as object)) {
           editor.commands.setContent(doc.content as JSONContent, { emitUpdate: false });
+        } else {
+          editor.commands.setContent(emptyDocumentJSON(), { emitUpdate: false });
         }
+        // Every page starts with its title block — normalize older content.
+        editor.commands.ensurePageTitle();
         setReady(true);
       })
       .catch((error) => {
@@ -226,7 +179,7 @@ export default function EditorPage() {
   }, [editor]);
 
   /* ------------------------------------------------ autosave */
-  const { status, savedAt, saveNow } = useAutosave({ editor, title, ready });
+  const { status, savedAt } = useAutosave({ editor, ready });
 
   /* ------------------------------------------------ global shortcuts */
   React.useEffect(() => {
@@ -248,17 +201,17 @@ export default function EditorPage() {
   /* ------------------------------------------------ demo & misc actions */
   const loadDemo = React.useCallback(() => {
     if (!editor) return;
-    if (editor.isEmpty) {
+    if (isDocEmpty(editor)) {
       editor.commands.setContent(DEMO_CONTENT, { emitUpdate: true });
     } else {
       editor
         .chain()
         .focus("end")
-        .insertContentAt(editor.state.doc.content.size, DEMO_CONTENT.content)
+        .insertContentAt(editor.state.doc.content.size, DEMO_CONTENT.content ?? [])
         .run();
     }
     toast.success("Demo document loaded", {
-      description: "Hover blocks, press / anywhere, select text — explore!",
+      description: "Hover blocks, press / or @ anywhere — explore!",
     });
   }, [editor]);
 
@@ -266,8 +219,6 @@ export default function EditorPage() {
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <Header
         editor={editor}
-        title={title}
-        onTitleChange={setTitle}
         status={status}
         onUndo={() => editor?.chain().focus().undo().run()}
         onRedo={() => editor?.chain().focus().redo().run()}
@@ -314,6 +265,7 @@ export default function EditorPage() {
 
       {/* ------------------------------ overlays ------------------------------ */}
       {editor && <SlashMenu />}
+      {editor && <MentionMenu />}
       {editor && <SearchPanel editor={editor} open={searchOpen} onClose={() => setSearchOpen(false)} />}
       {editor && (
         <ContextMenu
@@ -350,7 +302,7 @@ export default function EditorPage() {
         }}
       />
 
-      {/* Hidden file input for uploads */}
+      {/* Hidden file input for uploads — files go through the optimistic pipeline */}
       <input
         ref={fileInputRef}
         type="file"
@@ -358,7 +310,7 @@ export default function EditorPage() {
         className="hidden"
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
-          if (files.length && editor) void handleFiles(files, editor);
+          if (files.length && editor) insertOptimisticMedia(editor, files);
           e.target.value = "";
         }}
       />
@@ -366,12 +318,22 @@ export default function EditorPage() {
   );
 }
 
+/** True when the document has no meaningful content yet. */
+function isDocEmpty(editor: Editor): boolean {
+  const doc = editor.state.doc;
+  if (doc.childCount === 0) return true;
+  if (doc.childCount === 1) {
+    const first = doc.firstChild!;
+    if (first.type.name === "pageTitle") return first.content.size === 0;
+    if (first.type.name === "paragraph") return first.content.size === 0;
+  }
+  return false;
+}
+
 /* ================================================================ Header */
 
 function Header({
   editor,
-  title,
-  onTitleChange,
   status,
   onUndo,
   onRedo,
@@ -380,8 +342,6 @@ function Header({
   onLoadDemo,
 }: {
   editor: Editor | null;
-  title: string;
-  onTitleChange: (value: string) => void;
   status: SaveStatus;
   onUndo: () => void;
   onRedo: () => void;
@@ -410,23 +370,11 @@ function Header({
             <Feather size={15} strokeWidth={2.2} />
           </div>
 
-          <input
-            value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                editor?.commands.focus("start");
-              }
-            }}
-            placeholder="Untitled"
-            aria-label="Document title"
-            className="min-w-0 flex-1 rounded-md bg-transparent px-1.5 py-1 text-[14.5px] font-semibold tracking-tight outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-muted/40 focus:bg-muted/60"
-          />
+          <span className="sr-only">Document editor</span>
 
           <SaveChip status={status} />
 
-          <div className="flex items-center gap-0.5">
+          <div className="ml-auto flex items-center gap-0.5">
             <HeaderBtn title="Undo — ⌘Z" onClick={onUndo} disabled={!history?.canUndo}>
               <Undo2 size={15} />
             </HeaderBtn>
@@ -501,7 +449,7 @@ function SaveChip({ status }: { status: SaveStatus }) {
   return (
     <span
       className={cn(
-        "mr-1 hidden items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] font-medium sm:flex",
+        "hidden items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] font-medium sm:flex",
         className,
       )}
       role="status"
@@ -557,7 +505,7 @@ function StatusBar({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden md:inline">Press / for commands · ⌘/ shortcuts</span>
+          <span className="hidden md:inline">Press / for blocks · @ to mention · ⌘/ shortcuts</span>
           <span aria-hidden className="hidden md:inline">·</span>
           <span className="flex items-center gap-1.5" role="status" aria-live="polite">
             <span
@@ -600,11 +548,11 @@ function EmptyStateHint({
 }) {
   const isEmpty = useEditorState({
     editor,
-    selector: ({ editor: e }) => e.isEmpty,
+    selector: ({ editor: e }) => isDocEmpty(e),
   });
   if (!isEmpty) return null;
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[128px] z-10 flex justify-center animate-fade-slide-up">
+    <div className="pointer-events-none absolute inset-x-0 top-[150px] z-10 flex justify-center animate-fade-slide-up">
       <div className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-border/70 bg-card/80 py-1.5 pl-4 pr-1.5 text-xs text-muted-foreground shadow-lg shadow-black/10 backdrop-blur-md">
         <span>
           Start typing, press <span className="kbd mx-0.5">/</span> for blocks

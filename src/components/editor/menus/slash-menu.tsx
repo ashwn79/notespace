@@ -61,9 +61,11 @@ export function SlashMenu() {
     return starts;
   }, [groups]);
 
+  // The ranked list puts the best match first — every query change must
+  // land the highlight on it (typing /video selects **Video**).
   React.useEffect(() => {
-    setActiveIndex((prev) => (prev >= items.length ? 0 : prev));
-  }, [items.length]);
+    setActiveIndex(0);
+  }, [query]);
 
   // Scroll active item into view.
   React.useEffect(() => {
@@ -198,9 +200,6 @@ export function SlashMenu() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px] font-medium leading-5">{item.title}</span>
-                      <span className="block truncate text-xs leading-4 text-muted-foreground">
-                        {item.description}
-                      </span>
                     </span>
                     {item.shortcut ? (
                       <span className="kbd shrink-0 opacity-70">{item.shortcut.replace("Mod-Alt-", "⌥")}</span>

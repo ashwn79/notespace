@@ -10,17 +10,23 @@ import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import type { Editor } from "@tiptap/core";
+import type { SlashActionHelpers } from "../extensions/slash-command";
 
 import { Callout } from "../extensions/callout";
 import { ToggleBlock, ToggleHeader } from "../extensions/toggle";
 import { MathBlock, MathInline } from "../extensions/math";
-import { Embed, FileBlock, VideoBlock } from "../extensions/media";
+import { Embed, FileBlock, VideoBlock, AudioBlock } from "../extensions/media";
 import { ImageBlock } from "../extensions/image-block";
 import { CodeBlock } from "../extensions/code-block";
 import { SearchReplace } from "../extensions/search-replace";
 import { BlockSelectionHighlight } from "../extensions/block-selection";
 import { EditorKeyboard, TaskInputRule } from "../extensions/keyboard";
 import { SlashCommand } from "../extensions/slash-command";
+import { Mention, MentionTrigger } from "../extensions/mention";
+import { PageTitle } from "../extensions/page-title";
+import { Columns, Column } from "../extensions/columns";
+import { EmojiShortcode } from "../extensions/emoji-shortcode";
+import { GuardedHeading, GuardedBlockquote } from "../extensions/input-guards";
 
 /**
  * The extension kit. Every capability of the editor is an extension —
@@ -29,12 +35,13 @@ import { SlashCommand } from "../extensions/slash-command";
  */
 
 export function buildExtensions(options: {
-  getActionContext: Parameters<typeof SlashCommand.configure>[0]["getActionContext"];
+  getActionContext: () => SlashActionHelpers;
 }) {
   return [
     // Core text document
     StarterKit.configure({
-      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      heading: false, // GuardedHeading below (input rules refuse to hijack the page title)
+      blockquote: false, // GuardedBlockquote below
       codeBlock: false, // replaced by CodeBlockLowlight below
       link: {
         openOnClick: false,
@@ -46,6 +53,8 @@ export function buildExtensions(options: {
       undoRedo: { depth: 300, newGroupDelay: 400 },
       trailingNode: false, // custom TrailingNode below
     }),
+    GuardedHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+    GuardedBlockquote,
 
     // Text styling
     TextStyle,
@@ -61,16 +70,24 @@ export function buildExtensions(options: {
     TaskItem.configure({ nested: true }),
 
     // Blocks
+    PageTitle,
     CodeBlock,
     ImageBlock,
     VideoBlock,
+    AudioBlock,
     FileBlock,
     Embed,
     Callout,
     ToggleBlock,
     ToggleHeader,
+    Columns,
+    Column,
     MathInline,
     MathBlock,
+
+    // Inline mentions (date / person / page chips) + "@" trigger
+    Mention,
+    MentionTrigger,
 
     // Tables
     Table.configure({ resizable: true, lastColumnResizable: false }),
@@ -83,13 +100,15 @@ export function buildExtensions(options: {
     BlockSelectionHighlight,
     EditorKeyboard,
     TaskInputRule,
+    EmojiShortcode,
     SlashCommand.configure({ getActionContext: options.getActionContext }),
     TrailingNode.configure({ node: "paragraph", notAfter: ["paragraph"] }),
 
-    // Placeholders ("Type '/' for commands…")
+    // Placeholders ("Type '/' for commands…", "Untitled")
     Placeholder.configure({
       includeChildren: true,
       placeholder: ({ node, editor: ed, pos }) => {
+        if (node.type.name === "pageTitle") return "Untitled";
         if (node.type.name === "heading") {
           return `Heading ${node.attrs.level}`;
         }
@@ -109,6 +128,6 @@ export function buildExtensions(options: {
 }
 
 function stateIsEmptyAtStart(editor: Editor, pos: number): boolean {
-  // Only the very first paragraph of an empty document gets the hint.
-  return pos <= 1;
+  // Only a paragraph directly following the page title gets the hint.
+  return pos <= 4;
 }

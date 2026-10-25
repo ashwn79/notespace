@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import {
-  Code2,
+  Columns3,
   FileText,
   Globe,
   Heading1,
@@ -11,6 +11,7 @@ import {
   ListChecks,
   ListOrdered,
   Minus,
+  Music,
   Quote,
   Sigma,
   Smile,
@@ -28,12 +29,13 @@ import type { SlashCategory } from "@/lib/editor/types";
 /**
  * Slash command registry. Adding a new block = adding one entry here.
  * The `action` receives everything it needs (editor, delete range, host helpers).
+ * Items are intentionally subtitle-free (Notion-style compact menu);
+ * `keywords` carry the matching surface instead.
  */
 
 export interface SlashItem {
   id: string;
   title: string;
-  description: string;
   keywords: string[];
   category: SlashCategory;
   icon: LucideIcon;
@@ -69,7 +71,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "text",
     title: "Text",
-    description: "Just start writing with plain text.",
     keywords: ["paragraph", "plain", "text", "p"],
     category: "Basics",
     icon: Text,
@@ -78,8 +79,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   ...([1, 2, 3] as const).map((level) => ({
     id: `heading${level}`,
     title: `Heading ${level}`,
-    description:
-      level === 1 ? "Big section heading." : level === 2 ? "Medium section heading." : "Small section heading.",
     keywords: ["h" + level, "title", "heading"],
     category: "Basics" as SlashCategory,
     icon: ([Heading1, Heading2, Heading3] as const)[level - 1],
@@ -90,7 +89,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "bulletList",
     title: "Bulleted list",
-    description: "Create a simple bulleted list.",
     keywords: ["unordered", "bullet", "list", "ul"],
     category: "Basics",
     icon: List,
@@ -100,7 +98,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "numberedList",
     title: "Numbered list",
-    description: "Create a list with numbering.",
     keywords: ["ordered", "number", "list", "ol"],
     category: "Basics",
     icon: ListOrdered,
@@ -110,7 +107,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "taskList",
     title: "To-do list",
-    description: "Track tasks with checkboxes.",
     keywords: ["task", "todo", "checkbox", "check"],
     category: "Basics",
     icon: ListChecks,
@@ -120,7 +116,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "toggleList",
     title: "Toggle list",
-    description: "Hide and show content inside a collapsible block.",
     keywords: ["toggle", "collapse", "details", "fold"],
     category: "Basics",
     icon: ListCollapse,
@@ -140,9 +135,18 @@ export const SLASH_ITEMS: SlashItem[] = [
         .run(),
   },
   {
+    id: "columns",
+    title: "Columns",
+    keywords: ["columns", "layout", "grid", "side by side", "two column"],
+    category: "Basics",
+    icon: Columns3,
+    action: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).setColumns(2).run();
+    },
+  },
+  {
     id: "quote",
     title: "Quote",
-    description: "Capture a quote or citation.",
     keywords: ["blockquote", "citation", "quote"],
     category: "Basics",
     icon: Quote,
@@ -152,7 +156,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "divider",
     title: "Divider",
-    description: "Visually divide sections with a line.",
     keywords: ["hr", "line", "separator", "divider"],
     category: "Basics",
     icon: Minus,
@@ -161,7 +164,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "callout",
     title: "Callout",
-    description: "Make writing stand out in a tinted box.",
     keywords: ["callout", "info", "note", "aside"],
     category: "Basics",
     icon: Smile,
@@ -170,7 +172,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "codeBlock",
     title: "Code block",
-    description: "Capture a code snippet with syntax highlighting.",
     keywords: ["code", "snippet", "pre"],
     category: "Basics",
     icon: SquareCode,
@@ -180,7 +181,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "table",
     title: "Table",
-    description: "Insert a 3×3 editable table.",
     keywords: ["table", "grid", "rows", "columns"],
     category: "Basics",
     icon: Table,
@@ -190,7 +190,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "image",
     title: "Image",
-    description: "Upload an image from your device.",
     keywords: ["image", "photo", "picture", "upload"],
     category: "Media",
     icon: ImageIcon,
@@ -202,7 +201,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "video",
     title: "Video",
-    description: "Upload a video file.",
     keywords: ["video", "movie", "mp4", "upload"],
     category: "Media",
     icon: Video,
@@ -212,9 +210,19 @@ export const SLASH_ITEMS: SlashItem[] = [
     },
   },
   {
+    id: "audio",
+    title: "Audio",
+    keywords: ["audio", "music", "mp3", "podcast", "sound"],
+    category: "Media",
+    icon: Music,
+    action: ({ editor, range, requestUpload }) => {
+      editor.chain().focus().deleteRange(range).run();
+      requestUpload("audio");
+    },
+  },
+  {
     id: "file",
     title: "File",
-    description: "Attach any file with a download link.",
     keywords: ["file", "attachment", "upload", "pdf"],
     category: "Media",
     icon: FileText,
@@ -226,7 +234,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "embed",
     title: "Embed",
-    description: "Embed a YouTube, Vimeo or Loom link.",
     keywords: ["embed", "iframe", "youtube", "vimeo", "loom"],
     category: "Embeds",
     icon: Globe,
@@ -238,7 +245,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "mathBlock",
     title: "Math block",
-    description: "Render a LaTeX equation block.",
     keywords: ["math", "latex", "equation", "katex", "formula"],
     category: "Advanced",
     icon: Sigma,
@@ -250,7 +256,6 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: "mathInline",
     title: "Inline math",
-    description: "Render LaTeX inside a sentence, e.g. $E=mc^2$.",
     keywords: ["math", "latex", "inline", "equation"],
     category: "Advanced",
     icon: Sigma,
@@ -259,25 +264,32 @@ export const SLASH_ITEMS: SlashItem[] = [
       requestMath(editor, true);
     },
   },
-  {
-    id: "emoji",
-    title: "Emoji",
-    description: "Pick an emoji from the palette.",
-    keywords: ["emoji", "smiley", "icon", "reaction"],
-    category: "Advanced",
-    icon: Smile,
-    action: ({ editor, range, requestEmoji }) => {
-      editor.chain().focus().deleteRange(range).run();
-      requestEmoji(editor);
-    },
-  },
 ];
 
 export const SLASH_CATEGORIES: SlashCategory[] = ["Basics", "Media", "Advanced", "Embeds"];
 
+/**
+ * Relevance score — lower is better. The menu's initial highlight is the
+ * first item of the flattened list, so ranking decides which item the
+ * keyboard "lands on" (typing `/video` must select **Video**, not Divider).
+ */
+function scoreItem(query: string, item: SlashItem): number {
+  const q = query.toLowerCase();
+  const title = item.title.toLowerCase();
+  if (title === q) return 0;
+  if (title.startsWith(q)) return 1;
+  if (item.keywords.some((k) => k === q)) return 2;
+  if (item.keywords.some((k) => k.startsWith(q))) return 3;
+  if (title.includes(q)) return 4;
+  if (item.keywords.some((k) => k.includes(q))) return 5;
+  if (fuzzyMatch(q, item.title)) return 6;
+  if (item.keywords.some((k) => fuzzyMatch(q, k))) return 7;
+  return 100;
+}
+
 /** Filter + rank items for the menu. Recents surface first on empty query. */
 export function filterSlashItems(query: string): { category: string; items: SlashItem[] }[] {
-  const q = query.replace(/^\//, "").trim();
+  const q = query.replace(/^\//, "").trim().toLowerCase();
   const recents = getRecents();
 
   if (!q) {
@@ -293,19 +305,19 @@ export function filterSlashItems(query: string): { category: string; items: Slas
     return groups;
   }
 
-  const matched = SLASH_ITEMS.filter(
-    (item) =>
-      fuzzyMatch(q, item.title) ||
-      fuzzyMatch(q, item.description) ||
-      item.keywords.some((k) => fuzzyMatch(q, k) || k.startsWith(q.toLowerCase())),
-  );
+  const matched = SLASH_ITEMS.map((item) => ({ item, score: scoreItem(q, item) }))
+    .filter((entry) => entry.score < 100)
+    .sort((a, b) => a.score - b.score)
+    .map((entry) => entry.item);
 
-  const groups: { category: string; items: SlashItem[] }[] = [];
-  for (const category of SLASH_CATEGORIES) {
-    const items = matched.filter((item) => item.category === category);
-    if (items.length) groups.push({ category, items });
+  // Group the ranked results, preserving global relevance order.
+  const groups = new Map<string, SlashItem[]>();
+  for (const item of matched) {
+    const bucket = groups.get(item.category) ?? [];
+    bucket.push(item);
+    groups.set(item.category, bucket);
   }
-  return groups;
+  return [...groups.entries()].map(([category, items]) => ({ category, items }));
 }
 
 export function flattenSlashItems(groups: { items: SlashItem[] }[]): SlashItem[] {
