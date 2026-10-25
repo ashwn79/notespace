@@ -243,7 +243,13 @@
 .rich-editor .tiptap h5 { font-size: 1em; }
 .rich-editor .tiptap h6 { font-size: 0.92em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.85; }
 .rich-editor .tiptap h1 + *, .rich-editor .tiptap h2 + *, .rich-editor .tiptap h3 + * { margin-top: 0; }
-.rich-editor .tiptap :first-child { padding-top: 0; margin-top: 0; }
+/* Scope the first-block reset to the editor's DIRECT children. A broad
+   `:first-child` also matched the first cell of every table row (its top
+   padding collapsed, shifting the first column 7px above the rest) and
+   zeroed list-item paragraphs. */
+.rich-editor .tiptap > :first-child { padding-top: 0; margin-top: 0; }
+/* Keep the tight list-item spacing the broad rule used to provide. */
+.rich-editor .tiptap li > p:first-child { padding-top: 0; }
 
 /* Marks -------------------------------------------------------------- */
 .rich-editor .tiptap strong { font-weight: 650; }
@@ -283,6 +289,13 @@
   padding-left: 1.4em;
   margin: 2px 0;
 }
+/* Tailwind preflight resets list-style to none — restore visible markers. */
+.rich-editor .tiptap ul { list-style: disc; }
+.rich-editor .tiptap ul ul { list-style: circle; }
+.rich-editor .tiptap ul ul ul { list-style: square; }
+.rich-editor .tiptap ol { list-style: decimal; }
+.rich-editor .tiptap ol ol { list-style: lower-alpha; }
+.rich-editor .tiptap ol ol ol { list-style: lower-roman; }
 .rich-editor .tiptap li p {
   padding: 2px 0;
 }
@@ -584,6 +597,11 @@
 }
 .rich-editor .tiptap .toggle-content [data-header] {
   font-weight: 500;
+}
+/* Child content sits one level right of the header so the hierarchy is
+   visually obvious (Notion-style toggle indent). */
+.rich-editor .tiptap .toggle-content [data-header] ~ * {
+  margin-left: 1.5rem;
 }
 .rich-editor .tiptap .toggle-block[data-open="false"] .toggle-content [data-header] ~ * {
   display: none;
@@ -946,6 +964,9 @@
 }
 .page-icon-row {
   display: flex;
+  /* Space is ALWAYS reserved so adding/removing/changing the emoji never
+     shifts the page title vertically. */
+  height: 56px;
   margin-bottom: 6px;
 }
 .page-icon-btn {
@@ -966,20 +987,20 @@
   background: var(--editor-hover);
   transform: scale(1.04);
 }
-/* No icon yet → the affordance appears on hover only (Notion behavior) */
+/* No icon yet → the affordance fades in on hover only (Notion behavior),
+   but the reserved space above the title never collapses. */
 .page-title-block:not([data-has-icon="true"]) .page-icon-row {
   opacity: 0;
-  height: 0;
-  margin-bottom: 0;
-  overflow: hidden;
-  transition: opacity 140ms ease, height 140ms ease;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 140ms ease, visibility 0s linear 140ms;
 }
 .page-title-block:not([data-has-icon="true"]):hover .page-icon-row,
 .page-title-block:not([data-has-icon="true"]):focus-within .page-icon-row {
   opacity: 1;
-  height: 56px;
-  margin-bottom: 6px;
-  overflow: visible;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 140ms ease;
 }
 .page-title-block:not([data-has-icon="true"]) .page-icon-btn {
   height: 44px;
@@ -1003,30 +1024,28 @@
   vertical-align: baseline;
   font-size: inherit;
   line-height: inherit;
-  padding: 0.06em 0.4em;
-  margin: 0 0.08em;
+  padding: 0.05em 0.45em;
+  margin: 0 0.1em;
   border-radius: 0.4em;
-  border: 1px solid var(--border);
-  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  background: color-mix(in oklab, var(--foreground) 6.5%, transparent);
   color: inherit;
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background-color 120ms ease, box-shadow 120ms ease, color 120ms ease;
 }
 .rich-editor .tiptap .mention-chip:hover {
-  background: color-mix(in oklab, var(--foreground) 9%, transparent);
-  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+  background: color-mix(in oklab, var(--foreground) 11%, transparent);
 }
 .rich-editor .tiptap .mention-chip[data-selected="true"],
 .rich-editor .tiptap .mention-chip.ProseMirror-selectednode {
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 45%, transparent);
 }
 .rich-editor .tiptap .mention-chip .chip-icon {
-  width: 0.92em;
-  height: 0.92em;
+  width: 0.95em;
+  height: 0.95em;
   align-self: center;
-  margin-right: 0.32em;
+  margin-right: 0.36em;
   flex-shrink: 0;
   color: var(--muted-foreground);
 }
@@ -1035,8 +1054,21 @@
   font-size: inherit;
   line-height: inherit;
 }
+/* Date chips carry the accent tint so they read as live reminders. */
+.rich-editor .tiptap .mention-chip-date {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+.rich-editor .tiptap .mention-chip-date:hover {
+  background: color-mix(in oklab, var(--primary) 21%, transparent);
+}
 .rich-editor .tiptap .mention-chip-date .chip-icon {
   color: var(--primary);
+}
+.rich-editor .tiptap .mention-chip-page {
+  background: color-mix(in oklab, var(--foreground) 7.5%, transparent);
+}
+.rich-editor .tiptap .mention-chip-page:hover {
+  background: color-mix(in oklab, var(--foreground) 12%, transparent);
 }
 .rich-editor .tiptap .mention-chip-page .chip-icon {
   color: var(--muted-foreground);
@@ -1047,7 +1079,7 @@
   justify-content: center;
   width: 1.18em;
   height: 1.18em;
-  margin-right: 0.34em;
+  margin-right: 0.36em;
   border-radius: 999px;
   color: white;
   font-size: 0.72em;
@@ -1055,6 +1087,7 @@
   line-height: 1;
   flex-shrink: 0;
   text-shadow: 0 0 2px rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, white 22%, transparent);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1084,10 +1117,18 @@
   border: 1px dashed transparent;
   border-radius: 10px;
   padding: 2px;
-  transition: border-color 140ms ease;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
-.rich-editor .tiptap .columns-block:hover .columns-grid > [data-column] {
-  border-color: color-mix(in oklab, var(--foreground) 12%, transparent);
+/* Idle: invisible. Hover (not editing): barely-there hint. */
+.rich-editor .tiptap .columns-block:hover .columns-grid [data-column] {
+  border-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+/* Editing (the editor selection is inside this columns node — tracked by
+   the node view via [data-editing]; :focus-within can't work because PM
+   keeps DOM focus on the contenteditable root): subtle structural cue. */
+.rich-editor .tiptap .columns-block[data-editing="true"] .columns-grid [data-column] {
+  border-color: color-mix(in oklab, var(--primary) 28%, transparent);
+  background: color-mix(in oklab, var(--primary) 3%, transparent);
 }
 .column-add-btn,
 .column-remove-btn {

@@ -1,5 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { PageTitleView } from "../nodes/page-title-view";
 
@@ -16,6 +17,30 @@ declare module "@tiptap/core" {
       ensurePageTitle: () => ReturnType;
     };
   }
+}
+
+/** True when the current selection spans the page-title block as a whole
+ * (Select-All, a NodeSelection on the title, a drag from the doc start). */
+function selectionCoversTitle(state: import("@tiptap/pm/state").EditorState): boolean {
+  const first = state.doc.firstChild;
+  if (!first || first.type.name !== "pageTitle") return false;
+  const { selection } = state;
+  if (selection.empty) return false;
+  return selection.from <= 1 && selection.to >= first.nodeSize - 1;
+}
+
+/** Delete everything the selection covers but re-create an EMPTY title
+ * (with the emoji placeholder reset) so the page always keeps its header. */
+function recreateEmptyTitle(editor: Editor): boolean {
+  return editor.commands.command(({ tr, state }) => {
+    const first = state.doc.firstChild;
+    if (!first || first.type.name !== "pageTitle") return false;
+    const end = Math.max(state.selection.to, first.nodeSize);
+    tr.replaceWith(0, end, state.schema.nodes.pageTitle.create({ icon: null }));
+    tr.setSelection(TextSelection.create(tr.doc, 1));
+    tr.scrollIntoView();
+    return true;
+  });
 }
 
 export const PageTitle = Node.create({
@@ -73,11 +98,17 @@ export const PageTitle = Node.create({
       Backspace: ({ editor }) => {
         const { state } = editor;
         const { $from, empty } = state.selection;
-        if (!empty) return false;
-        if ($from.parent.type.name !== "pageTitle") return false;
-        if ($from.parentOffset === 0) return true; // swallow
+        if ($from.parent.type.name === "pageTitle" && empty && $from.parentOffset === 0) {
+          return true; // swallow
+        }
+        // Select-All + Backspace must never delete the page header itself.
+        if (selectionCoversTitle(state)) return recreateEmptyTitle(editor);
         return false;
       },
+      // Same guard for the forward-delete and group-delete variants.
+      Delete: ({ editor }) => (selectionCoversTitle(editor.state) ? recreateEmptyTitle(editor) : false),
+      "Mod-Backspace": ({ editor }) => (selectionCoversTitle(editor.state) ? recreateEmptyTitle(editor) : false),
+      "Mod-Delete": ({ editor }) => (selectionCoversTitle(editor.state) ? recreateEmptyTitle(editor) : false),
     };
   },
 

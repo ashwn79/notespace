@@ -5,6 +5,7 @@ import type { SuggestionKeyDownProps, SuggestionProps } from "@tiptap/suggestion
 import { CalendarDays, UserRound, FileText, type LucideIcon } from "lucide-react";
 import { mentionController, type MentionMenuItem } from "../extensions/mention";
 import { fuzzyMatch } from "@/lib/editor/utils";
+import { toISO } from "@/lib/editor/dates";
 import { cn } from "@/lib/utils";
 
 /**
@@ -231,47 +232,72 @@ const PAGES: { title: string; pageId: string }[] = [
   { title: "Meeting notes", pageId: "page-meeting-notes" },
 ];
 
-/** Build the ranked mention menu for the current query. */
+/** Build the ranked mention menu for the current query.
+ *
+ * Group order: Dates → People → Pages.
+ * The Dates group stays minimal by default (Today + a 9:00 AM reminder);
+ * tomorrow / yesterday and the full date picker surface dynamically when
+ * the query actually matches them.
+ */
 export function buildMentionItems(query: string): { group: MentionMenuItem["group"]; items: MentionMenuItem[] }[] {
   const q = query.trim().toLowerCase();
 
-  const dateItems: MentionMenuItem[] = [
-    {
-      id: "date-today",
-      group: "Dates",
-      label: "Today",
-      emoji: "📅",
-      keywords: ["today", "now"],
-      apply: (editor, range) => insertDate(editor, range, shiftDays(0)),
+  const todayItem: MentionMenuItem = {
+    id: "date-today",
+    group: "Dates",
+    label: "Today",
+    emoji: "📅",
+    keywords: ["today", "now"],
+    apply: (editor, range) => insertDate(editor, range, shiftDays(0)),
+  };
+
+  const remindAt9: MentionMenuItem = {
+    id: "date-remind-9am",
+    group: "Dates",
+    label: "Remind me at 9:00 AM",
+    emoji: "⏰",
+    keywords: ["remind", "reminder", "9am", "9", "morning", "alarm", "notify", "alert"],
+    apply: (editor, range) => insertReminderAt9(editor, range),
+  };
+
+  const tomorrowItem: MentionMenuItem = {
+    id: "date-tomorrow",
+    group: "Dates",
+    label: "Tomorrow",
+    emoji: "🌅",
+    keywords: ["tomorrow", "tmr"],
+    apply: (editor, range) => insertDate(editor, range, shiftDays(1)),
+  };
+
+  const yesterdayItem: MentionMenuItem = {
+    id: "date-yesterday",
+    group: "Dates",
+    label: "Yesterday",
+    emoji: "🕓",
+    keywords: ["yesterday"],
+    apply: (editor, range) => insertDate(editor, range, shiftDays(-1)),
+  };
+
+  const pickerItem: MentionMenuItem = {
+    id: "date-picker",
+    group: "Dates",
+    label: "Pick a date & reminders…",
+    emoji: "🗓️",
+    hint: "Calendar, time, end date, alerts",
+    keywords: ["date", "calendar", "remind", "reminder", "time", "pick"],
+    apply: (editor, range) => {
+      editor.chain().focus().deleteRange(range).insertMention({ mentionType: "date", openPanel: true }).run();
     },
-    {
-      id: "date-tomorrow",
-      group: "Dates",
-      label: "Tomorrow",
-      emoji: "🌅",
-      keywords: ["tomorrow"],
-      apply: (editor, range) => insertDate(editor, range, shiftDays(1)),
-    },
-    {
-      id: "date-yesterday",
-      group: "Dates",
-      label: "Yesterday",
-      emoji: "🕓",
-      keywords: ["yesterday"],
-      apply: (editor, range) => insertDate(editor, range, shiftDays(-1)),
-    },
-    {
-      id: "date-picker",
-      group: "Dates",
-      label: "Pick a date & reminders…",
-      emoji: "🗓️",
-      hint: "Calendar, time, end date, alerts",
-      keywords: ["date", "calendar", "remind", "reminder", "time", "pick"],
-      apply: (editor, range) => {
-        editor.chain().focus().deleteRange(range).insertMention({ mentionType: "date", openPanel: true }).run();
-      },
-    },
-  ];
+  };
+
+  // A dynamic item only joins the menu once the query asks for it.
+  const askedFor = (...needles: string[]): boolean =>
+    Boolean(q) && needles.some((n) => n.startsWith(q) || q.includes(n) || fuzzyMatch(q, n));
+
+  const dateItems: MentionMenuItem[] = [todayItem, remindAt9];
+  if (askedFor("tomorrow", "tmr")) dateItems.push(tomorrowItem);
+  if (askedFor("yesterday")) dateItems.push(yesterdayItem);
+  if (askedFor("date", "calendar", "time", "pick", "remind", "reminder")) dateItems.push(pickerItem);
 
   const personItems: MentionMenuItem[] = PEOPLE.map((person) => ({
     id: `person-${person.name.toLowerCase().replace(/\s+/g, "-")}`,
@@ -313,8 +339,8 @@ export function buildMentionItems(query: string): { group: MentionMenuItem["grou
   }));
 
   const all: [MentionMenuItem["group"], MentionMenuItem[]][] = [
-    ["People", personItems],
     ["Dates", dateItems],
+    ["People", personItems],
     ["Pages", pageItems],
   ];
 
@@ -354,6 +380,27 @@ function docTitleFallback(editor: import("@tiptap/core").Editor): string {
 
 function insertDate(editor: import("@tiptap/core").Editor, range: import("@tiptap/core").Range, iso: string) {
   editor.chain().focus().deleteRange(range).insertMention({ mentionType: "date", date: iso }).run();
+}
+
+/** "Remind me at 9:00 AM" — today at 09:00 with a reminder, rolling to
+ * tomorrow when 9:00 has already passed. */
+function insertReminderAt9(editor: import("@tiptap/core").Editor, range: import("@tiptap/core").Range) {
+  const now = new Date();
+  const target = new Date();
+  target.setHours(9, 0, 0, 0);
+  if (now.getTime() >= target.getTime()) target.setDate(target.getDate() + 1);
+  editor
+    .chain()
+    .focus()
+    .deleteRange(range)
+    .insertMention({
+      mentionType: "date",
+      date: toISO(target),
+      includeTime: true,
+      startTime: "09:00",
+      reminder: "at_time",
+    })
+    .run();
 }
 
 function shiftDays(days: number): string {

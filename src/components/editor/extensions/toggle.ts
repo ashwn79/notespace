@@ -62,41 +62,44 @@ export const ToggleBlock = Node.create({
       setToggleBlock:
         () =>
         ({ editor, chain }) => {
-          const { state } = editor;
-          const { selection } = state;
-          const { $from } = selection;
-          const toggleType = state.schema.nodes.toggleBlock;
-          const headerType = state.schema.nodes.toggleHeader;
+          const schema = editor.state.schema;
+          const toggleType = schema.nodes.toggleBlock;
+          const headerType = schema.nodes.toggleHeader;
           if (!toggleType || !headerType) return false;
 
-          // Already inside a toggle header → unwrap to a plain paragraph.
-          if ($from.parent.type.name === "toggleHeader") {
-            const togglePos = $from.before($from.depth - 1);
-            const toggleNode = state.doc.resolve(togglePos).nodeAfter;
-            if (!toggleNode) return false;
-            return chain().command(({ tr }) => {
-              const blocks: PMNode[] = [];
-              toggleNode.forEach((child) => {
-                if (child.type.name === "toggleHeader") {
-                  blocks.push(state.schema.nodes.paragraph.create(null, child.content, child.marks));
-                } else {
-                  blocks.push(child);
-                }
-              });
-              tr.replaceWith(togglePos, togglePos + toggleNode.nodeSize, blocks);
-              tr.scrollIntoView();
-              return true;
-            }).run();
-          }
-
-          // Convert the current top-level block into a toggle:
-          // its inline content becomes the header, an empty body follows.
-          const blockRange = selection.$from.blockRange(selection.$to) ?? null;
-          if (!blockRange) return false;
-          const startParent = selection.$from.parent;
-
+          // NOTE: every position below is derived from the LIVE transaction
+          // (tr.doc / tr.selection), never from editor.state — this command
+          // usually runs after deleteRange() in the same chain (slash menu),
+          // where editor.state positions are stale and out of range.
           return chain()
             .command(({ tr }) => {
+              const { selection } = tr;
+              const { $from } = selection;
+
+              // Already inside a toggle header → unwrap to a plain paragraph.
+              if ($from.parent.type.name === "toggleHeader") {
+                const togglePos = $from.before($from.depth - 1);
+                const toggleNode = tr.doc.resolve(togglePos).nodeAfter;
+                if (!toggleNode) return false;
+                const blocks: PMNode[] = [];
+                toggleNode.forEach((child) => {
+                  if (child.type.name === "toggleHeader") {
+                    blocks.push(schema.nodes.paragraph.create(null, child.content, child.marks));
+                  } else {
+                    blocks.push(child);
+                  }
+                });
+                tr.replaceWith(togglePos, togglePos + toggleNode.nodeSize, blocks);
+                tr.scrollIntoView();
+                return true;
+              }
+
+              // Convert the current top-level block into a toggle:
+              // its inline content becomes the header, an empty body follows.
+              const blockRange = selection.$from.blockRange(selection.$to) ?? null;
+              if (!blockRange) return false;
+              const startParent = tr.doc.resolve(selection.from).parent;
+
               let targetFrom = blockRange.start;
               let targetTo = blockRange.end;
               let headerContent: Fragment | null = null;
@@ -110,11 +113,11 @@ export const ToggleBlock = Node.create({
                 targetFrom = selection.from;
                 targetTo = selection.to;
               } else {
-                bodyContent = [...(state.doc.slice(blockRange.start, blockRange.end)?.content.content ?? [])];
+                bodyContent = [...(tr.doc.slice(blockRange.start, blockRange.end)?.content.content ?? [])];
               }
 
               const header = headerType.create(null, headerContent ?? Fragment.empty);
-              const body = bodyContent.length ? bodyContent : [state.schema.nodes.paragraph.create()];
+              const body = bodyContent.length ? bodyContent : [schema.nodes.paragraph.create()];
               const toggle = toggleType.create({ open: true }, [header, ...body]);
               tr.replaceWith(targetFrom, targetTo, toggle);
               const headerEnd = targetFrom + 1 + header.content.size + 1;

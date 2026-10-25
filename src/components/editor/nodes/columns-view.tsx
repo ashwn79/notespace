@@ -9,10 +9,43 @@ import { Plus, X } from "lucide-react";
  * Columns node view — CSS grid driven by the child count, with hover
  * controls: "+" adds a column (max 6), each column has an "×" that lifts
  * its blocks out of the layout (no content loss) and removes the column.
+ *
+ * The layout borders are shown only while the editor's selection lives
+ * inside this columns node ("editing"). DOM `:focus-within` cannot be used
+ * here — ProseMirror keeps DOM focus on the contenteditable root, so inner
+ * wrappers never contain the focused element.
  */
 export function ColumnsView({ node, editor, getPos }: NodeViewProps) {
   const count = node.childCount;
   const canAdd = count < 6;
+
+  // "Editing" = the editor selection is inside this columns node and the
+  // editor holds focus. Recomputed on every selection/transaction change.
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => {
+    const update = () => {
+      const pos = typeof getPos === "function" ? getPos() : undefined;
+      if (typeof pos !== "number") {
+        setEditing(false);
+        return;
+      }
+      const nodeAtPos = editor.state.doc.nodeAt(pos);
+      if (!nodeAtPos) {
+        setEditing(false);
+        return;
+      }
+      const end = pos + nodeAtPos.nodeSize;
+      const { from, to } = editor.state.selection;
+      setEditing(editor.isFocused && from >= pos && to <= end);
+    };
+    update();
+    editor.on("selectionUpdate", update);
+    editor.on("transaction", update);
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("transaction", update);
+    };
+  }, [editor, getPos, node]);
 
   const addColumn = () => {
     const pos = (typeof getPos === "function" ? getPos() : 0) as number;
@@ -56,7 +89,7 @@ export function ColumnsView({ node, editor, getPos }: NodeViewProps) {
   };
 
   return (
-    <NodeViewWrapper className="columns-block group/columns">
+    <NodeViewWrapper className="columns-block group/columns" data-editing={editing ? "true" : undefined}>
       <NodeViewContent
         className="columns-grid"
         style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}

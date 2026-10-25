@@ -31,13 +31,17 @@ import { cn } from "@/lib/utils";
 
 interface ToolbarRect {
   x: number;
+  /** Viewport Y for the container's top edge (used when below). */
   y: number;
+  /** Viewport bottom offset (used when above — the container then grows
+   * upward, so it can never cover the selected text). */
+  bottom: number;
   above: boolean;
   visible: boolean;
 }
 
 export function FloatingToolbar({ editor }: { editor: Editor }) {
-  const [rect, setRect] = React.useState<ToolbarRect>({ x: 0, y: 0, above: true, visible: false });
+  const [rect, setRect] = React.useState<ToolbarRect>({ x: 0, y: 0, bottom: 0, above: true, visible: false });
   const [linkOpen, setLinkOpen] = React.useState(false);
   const [colorOpen, setColorOpen] = React.useState(false);
   const [highlightOpen, setHighlightOpen] = React.useState(false);
@@ -45,6 +49,9 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
 
   const anyPopoverOpen = linkOpen || colorOpen || highlightOpen;
   const lastRectRef = React.useRef<ToolbarRect | null>(null);
+  // True while the user is still dragging a mouse selection — the toolbar
+  // must wait until the selection is complete (mouse release) to appear.
+  const selectingRef = React.useRef(false);
 
   const computeRect = React.useCallback((): ToolbarRect => {
     // While a popover is open the toolbar must stay put (it hosts the
@@ -55,9 +62,9 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
     const { state, view } = editor;
     const { selection } = state;
     const isTextSelection = !selection.empty && selection instanceof TextSelection;
-    if (!isTextSelection || !editor.isFocused || anyPopoverOpen) {
+    if (!isTextSelection || !editor.isFocused || anyPopoverOpen || selectingRef.current) {
       lastRectRef.current = null;
-      return { x: 0, y: 0, above: true, visible: false };
+      return { x: 0, y: 0, bottom: 0, above: true, visible: false };
     }
     const { from, to } = selection;
     const start = view.coordsAtPos(from);
@@ -65,10 +72,18 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
     const x = Math.min(start.left, end.left) + (Math.abs(end.left - start.left) || 0) / 2;
     const top = Math.min(start.top, end.top);
     const bottom = Math.max(start.bottom, end.bottom);
-    const above = top > 76; // leave room for the flip
+    const TOOLBAR_H = 46;
+    // Above needs clearance for the sticky header + the toolbar itself;
+    // otherwise drop below the selection. Above is anchored by its BOTTOM
+    // edge (12px above the selection) so it always grows upward and the
+    // selected text stays fully visible — including when panels open.
+    const canAbove = top > 128;
+    const canBelow = bottom + TOOLBAR_H + 16 < window.innerHeight;
+    const above = canAbove || !canBelow;
     const next: ToolbarRect = {
       x: Math.min(Math.max(70, x), window.innerWidth - 70),
-      y: above ? top - 10 : bottom + 10,
+      y: bottom + 12,
+      bottom: window.innerHeight - top + 12,
       above,
       visible: true,
     };
@@ -83,6 +98,21 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => setRect(computeRect()));
     };
+    // A mouse selection is only "complete" once the button is released.
+    // mousedown → hide immediately; window mouseup → re-evaluate (show).
+    const onMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      selectingRef.current = true;
+      schedule();
+    };
+    const onMouseUp = () => {
+      if (!selectingRef.current) return;
+      selectingRef.current = false;
+      schedule();
+    };
+    const viewDom = editor.view.dom;
+    viewDom.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
     editor.on("selectionUpdate", schedule);
     editor.on("transaction", schedule);
     editor.on("blur", schedule);
@@ -91,6 +121,8 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
     schedule();
     return () => {
       cancelAnimationFrame(raf);
+      viewDom.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
       editor.off("selectionUpdate", schedule);
       editor.off("transaction", schedule);
       editor.off("blur", schedule);
@@ -132,14 +164,16 @@ export function FloatingToolbar({ editor }: { editor: Editor }) {
       {rect.visible && (
         <motion.div
           key="floating-toolbar"
-          initial={{ opacity: 0, scale: 0.96, y: rect.above ? 4 : -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97 }}
+          initial={{ opacity: 0, scale: 0.96, y: rect.above ? 4 : -4, x: "-50%" }}
+          animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
+          exit={{ opacity: 0, scale: 0.97, x: "-50%" }}
           transition={{ duration: 0.15, ease: [0.2, 0.8, 0.3, 1] }}
           style={{
             left: rect.x,
-            top: rect.y,
-            transform: "translateX(-50%)",
+            // Above → anchor the container's bottom edge above the selection
+            // (grows upward, never covers the text). Below → anchor top.
+            top: rect.above ? "auto" : rect.y,
+            bottom: rect.above ? rect.bottom : "auto",
           }}
           className="fixed z-[90] flex flex-col items-center gap-2"
           onMouseDown={(e) => {

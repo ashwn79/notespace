@@ -119,20 +119,10 @@ export const SLASH_ITEMS: SlashItem[] = [
     keywords: ["toggle", "collapse", "details", "fold"],
     category: "Basics",
     icon: ListCollapse,
-    action: ({ editor, range }) =>
-      editor
-        .chain()
-        .focus()
-        .deleteRange(range)
-        .insertContent({
-          type: "toggleBlock",
-          attrs: { open: true },
-          content: [
-            { type: "toggleHeader", content: [{ type: "text", text: "Toggle title" }] },
-            { type: "paragraph" },
-          ],
-        })
-        .run(),
+    // setToggleBlock wraps the current block into a toggle with an EMPTY
+    // header — the "Toggle title" text the user sees is the editor's
+    // placeholder, not real content (same contract as every other block).
+    action: ({ editor, range }) => editor.chain().focus().deleteRange(range).setToggleBlock().run(),
   },
   {
     id: "columns",
