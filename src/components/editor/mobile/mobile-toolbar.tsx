@@ -188,6 +188,9 @@ export function MobileLayer({
     setSearchMode(false);
     setHoldOpen(true);
     option.run(editor);
+    // Re-enter editing mode explicitly — the keyboard re-opens beneath the
+    // parked row (real keyboard) or the row simply stays docked (none).
+    editor.commands.focus();
   };
 
   // Row actions run on the retained selection WITHOUT stealing focus, so
@@ -235,7 +238,13 @@ export function MobileLayer({
   if (!isMobile) return null;
 
   const sheetOpen = panel !== "none";
-  const attached = sheetOpen || keyboardVisible || holdOpen;
+  // Editing mode ALWAYS pins the toolbar. Focus is the one signal that
+  // never lies: on devices where the keyboard reports late — or in preview
+  // environments with no virtual keyboard at all, where VisualViewport
+  // never shrinks and `keyboardVisible` would stay false forever — the row
+  // docks at the viewport bottom the moment the editor is focused, then
+  // rides the keyboard's top edge as soon as one is measured.
+  const attached = focused || sheetOpen || holdOpen || keyboardVisible;
 
   // The row rides the keyboard's top edge. While a sheet replaces the
   // keyboard it parks at the sheet's top edge — the same px value, so the
@@ -261,13 +270,21 @@ export function MobileLayer({
   // transition); otherwise ease between parked positions.
   const live = animating && (keyboardVisible || searchMode);
 
+  // Docked with no keyboard beneath us: sit flush with the bottom edge but
+  // above the home-indicator safe area (detached keeps the negative px).
+  const rowBottomStyle = !attached
+    ? rowBottom
+    : rowBottom <= 0
+      ? "max(0px, env(safe-area-inset-bottom))"
+      : rowBottom;
+
   return (
     <>
       <div
         className="mobile-dock-row"
         data-attached={attached ? "true" : "false"}
         data-live={live ? "true" : "false"}
-        style={{ bottom: rowBottom }}
+        style={{ bottom: rowBottomStyle }}
         role="toolbar"
         aria-label="Text formatting"
         aria-hidden={!attached}

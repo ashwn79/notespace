@@ -198,7 +198,7 @@ export function BlockHandle({
     setMenuOpen(false);
 
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-aurora-blocks", JSON.stringify(indices));
+    e.dataTransfer.setData("application/x-notespace-blocks", JSON.stringify(indices));
     e.dataTransfer.setData("text/plain", "");
     buildGhost(blocks);
     if (ghostRef.current) {

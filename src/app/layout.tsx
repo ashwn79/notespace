@@ -18,12 +18,17 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aurora — Premium Writing Experience",
+  title: "Notespace — Premium Writing Experience",
   description:
-    "A Notion-inspired, block-based rich text editor with slash commands, drag & drop, code highlighting, tables, math and autosave.",
-  keywords: ["rich text editor", "notion", "wysiwyg", "block editor", "tiptap"],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    "Notespace is a Notion-inspired, block-based workspace for writing: slash commands, drag & drop, code highlighting, tables, math, columns and autosave.",
+  keywords: ["notespace", "notes", "rich text editor", "notion", "wysiwyg", "block editor", "tiptap"],
+  applicationName: "Notespace",
+  // Favicon / Apple touch icon come from src/app/icon.png + apple-icon.png
+  // (file-convention metadata) — the Notespace mark itself.
+  appleWebApp: {
+    capable: true,
+    title: "Notespace",
+    statusBarStyle: "black-translucent",
   },
 };
 
@@ -34,6 +39,9 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
+  // Cover the notch/home-indicator area so env(safe-area-inset-*) works —
+  // the mobile dock and status bar rely on it.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

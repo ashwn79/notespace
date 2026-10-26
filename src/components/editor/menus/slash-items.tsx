@@ -43,7 +43,7 @@ export interface SlashItem {
   action: (ctx: SlashActionContext) => void;
 }
 
-const RECENTS_KEY = "aurora-slash-recents";
+const RECENTS_KEY = "notespace-slash-recents";
 
 export function recordRecent(id: string) {
   if (typeof window === "undefined") return;

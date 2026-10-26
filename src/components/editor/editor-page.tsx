@@ -5,7 +5,6 @@ import type { Editor } from "@tiptap/core";
 import { JSONContent } from "@tiptap/core";
 import { useEditor, useEditorState, EditorContent } from "@tiptap/react";
 import {
-  Feather,
   Keyboard,
   Moon,
   Plus,
@@ -16,12 +15,14 @@ import {
   Presentation,
   Globe,
 } from "lucide-react";
+import Image from "next/image";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { NotespaceWordmark } from "@/components/brand/notespace-logo";
 import { fetchDocument } from "@/lib/editor/api";
 import type { SaveStatus } from "@/lib/editor/types";
 import { DEMO_CONTENT } from "@/lib/editor/demo-content";
@@ -373,12 +374,21 @@ function Header({
     <TooltipProvider delayDuration={300}>
       <header className="sticky top-0 z-50 shrink-0 border-b border-border/60 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-[52px] w-full max-w-5xl items-center gap-2 px-3 md:px-5">
-          <div
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/25"
-            aria-hidden
+          <a
+            href="/"
+            aria-label="Notespace — home"
+            className="flex shrink-0 items-center gap-2.5 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Feather size={15} strokeWidth={2.2} />
-          </div>
+            <Image
+              src="/notespace-icon.png"
+              alt=""
+              width={32}
+              height={32}
+              priority
+              className="h-8 w-8 rounded-[9px] shadow-md shadow-sky-500/25"
+            />
+            <NotespaceWordmark className="h-[15px] w-auto text-foreground" />
+          </a>
 
           <span className="sr-only">Document editor</span>
 

@@ -11,7 +11,7 @@ export const DEMO_CONTENT: JSONContent = {
     {
       type: "pageTitle",
       attrs: { icon: "✨" },
-      content: [{ type: "text", text: "Welcome to Aurora" }],
+      content: [{ type: "text", text: "Welcome to Notespace" }],
     },
     {
       type: "paragraph",

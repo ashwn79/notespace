@@ -109,11 +109,21 @@ export function useVisualViewport(): VisualViewportState {
     let raf = 0;
     let settleTimer = 0;
 
+    // Largest visual-viewport height observed while unzoomed — the stable
+    // reference for keyboard math. Platforms disagree on whether
+    // window.innerHeight tracks the keyboard (some shrink it along with the
+    // keyboard, which would zero out the delta), and iframes add their own
+    // quirks; the visual viewport's own maximum behaves identically
+    // everywhere and recalibrates whenever it grows back (rotation,
+    // keyboard close).
+    let maxVh = 0;
+
     const compute = () => {
       if (!vv) return 0;
       // Pinch-zoom also shrinks the visual viewport — that's not a keyboard.
       if (vv.scale > 1.01) return 0;
-      const overlay = window.innerHeight - vv.height - vv.offsetTop;
+      if (vv.height > maxVh) maxVh = vv.height;
+      const overlay = maxVh - vv.height - vv.offsetTop;
       return Math.max(0, Math.round(overlay));
     };
 

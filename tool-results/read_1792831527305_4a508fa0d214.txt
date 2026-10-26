@@ -1,0 +1,818 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import * as React from "react";
+     4→     4→import type { Editor } from "@tiptap/core";
+     5→     5→import { JSONContent } from "@tiptap/core";
+     6→     6→import { NodeSelection } from "@tiptap/pm/state";
+     7→     7→import { useEditor, useEditorState, EditorContent } from "@tiptap/react";
+     8→     8→import {
+     9→     9→  Feather,
+    10→    10→  Keyboard,
+    11→    11→  Moon,
+    12→    12→  Plus,
+    13→    13→  Redo2,
+    14→    14→  Search,
+    15→    15→  Sun,
+    16→    16→  Undo2,
+    17→    17→  Presentation,
+    18→    18→  Globe,
+    19→    19→} from "lucide-react";
+    20→    20→import { useTheme } from "next-themes";
+    21→    21→import { toast } from "sonner";
+    22→    22→
+    23→    23→import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+    24→    24→import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+    25→    25→import { cn } from "@/lib/utils";
+    26→    26→import { fetchDocument, uploadFile } from "@/lib/editor/api";
+    27→    27→import type { SaveStatus } from "@/lib/editor/types";
+    28→    28→import { DEMO_CONTENT } from "@/lib/editor/demo-content";
+    29→    29→import { formatBytes } from "@/lib/editor/utils";
+    30→    30→
+    31→    31→import { buildExtensions } from "./core/extensions";
+    32→    32→import { SlashMenu } from "./menus/slash-menu";
+    33→    33→import type { SlashActionHelpers } from "./extensions/slash-command";
+    34→    34→import { AtMenu } from "./menus/at-menu";
+    35→    35→import { EmojiMenu } from "./menus/emoji-menu";
+    36→    36→import type { AtActionHelpers } from "./extensions/at-command";
+    37→    37→import {
+    38→    38→  guessTypeFromUrl,
+    39→    39→  isMediaKind,
+    40→    40→  mediaNodeFor,
+    41→    41→  type MediaKind,
+    42→    42→} from "./extensions/media-placeholder";
+    43→    43→import { FloatingToolbar } from "./menus/floating-toolbar";
+    44→    44→import { ContextMenu, type ContextMenuState } from "./menus/context-menu";
+    45→    45→import { BlockHandle } from "./menus/block-handle";
+    46→    46→import { TableMenu } from "./menus/table-menu";
+    47→    47→import { SearchPanel } from "./panels/search-panel";
+    48→    48→import { ShortcutsDialog } from "./panels/shortcuts-dialog";
+    49→    49→import { DatePickDialog, PersonDialog } from "./panels/at-dialogs";
+    50→    50→import { EmojiPicker } from "./menus/emoji-picker";
+    51→    51→import { normalizeEmbedUrl } from "./extensions/media";
+    52→    52→import { useAutosave } from "./hooks/use-autosave";
+    53→    53→
+    54→    54→/**
+    55→    55→ * EditorPage — the full application shell:
+    56→    56→ * header (title + tools) · scrollable document surface · status footer.
+    57→    57→ */
+    58→    58→
+    59→    59→type UploadKind = "image" | "video" | "file";
+    60→    60→
+    61→    61→export default function EditorPage() {
+    62→    62→  const [ready, setReady] = React.useState(false);
+    63→    63→  const [title, setTitle] = React.useState("");
+    64→    64→  const [searchOpen, setSearchOpen] = React.useState(false);
+    65→    65→  const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+    66→    66→  const [emojiAnchor, setEmojiAnchor] = React.useState<DOMRect | null>(null);
+    67→    67→  const [embedOpen, setEmbedOpen] = React.useState(false);
+    68→    68→  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
+    69→    69→
+    70→    70→  const contentRef = React.useRef<HTMLDivElement>(null);
+    71→    71→  const fileInputRef = React.useRef<HTMLInputElement>(null);
+    72→    72→  const uploadKindRef = React.useRef<UploadKind>("image");
+    73→    73→  const dropInsertPos = React.useRef<number | undefined>(undefined);
+    74→    74→
+    75→    75→  /* ------------------------------------------------ helpers (slash actions) */
+    76→    76→  const requestUpload = React.useCallback((kind: UploadKind) => {
+    77→    77→    uploadKindRef.current = kind;
+    78→    78→    const input = fileInputRef.current;
+    79→    79→    if (input) {
+    80→    80→      input.accept =
+    81→    81→        kind === "image" ? "image/*" : kind === "video" ? "video/*" : "*/*";
+    82→    82→      input.click();
+    83→    83→    }
+    84→    84→  }, []);
+    85→    85→
+    86→    86→  const insertUpload = React.useCallback(
+    87→    87→    (
+    88→    88→      editor: Editor,
+    89→    89→      result: { url: string; name: string; size: number; type: string },
+    90→    90→      kind: UploadKind,
+    91→    91→      replacePos?: number,
+    92→    92→    ) => {
+    93→    93→      const node: JSONContent =
+    94→    94→        kind === "image"
+    95→    95→          ? { type: "imageBlock", attrs: { src: result.url, alt: result.name, width: 100, align: "center" } }
+    96→    96→          : kind === "video"
+    97→    97→            ? { type: "videoBlock", attrs: { src: result.url, name: result.name } }
+    98→    98→            : { type: "fileBlock", attrs: { src: result.url, name: result.name, size: result.size, type: result.type } };
+    99→    99→      // A selected media placeholder is REPLACED by the finished block.
+   100→   100→      if (replacePos !== undefined) {
+   101→   101→        const target = editor.state.doc.nodeAt(replacePos);
+   102→   102→        const to = target ? replacePos + target.nodeSize : replacePos + 1;
+   103→   103→        editor.chain().focus().insertContentAt({ from: replacePos, to }, node).run();
+   104→   104→        return;
+   105→   105→      }
+   106→   106→      editor
+   107→   107→        .chain()
+   108→   108→        .focus()
+   109→   109→        .insertContentAt(dropInsertPos.current ?? editor.state.selection.to, node)
+   110→   110→        .run();
+   111→   111→      dropInsertPos.current = undefined;
+   112→   112→    },
+   113→   113→    [],
+   114→   114→  );
+   115→   115→
+   116→   116→  const handleFiles = React.useCallback(
+   117→   117→    async (files: File[], editorInstance: Editor, insertPos?: number, replacePos?: number) => {
+   118→   118→      dropInsertPos.current = insertPos;
+   119→   119→      for (const file of files) {
+   120→   120→        const loadingToast = toast.loading(`Uploading ${file.name}…`, {
+   121→   121→          description: formatBytes(file.size),
+   122→   122→        });
+   123→   123→        try {
+   124→   124→          const result = await uploadFile(file);
+   125→   125→          toast.dismiss(loadingToast);
+   126→   126→          // Choose the block type from the actual mime type (handles
+   127→   127→          // drag-drop where the slash-menu kind is not authoritative).
+   128→   128→          const kind: UploadKind = file.type.startsWith("image")
+   129→   129→            ? "image"
+   130→   130→            : file.type.startsWith("video")
+   131→   131→              ? "video"
+   132→   132→              : "file";
+   133→   133→          insertUpload(editorInstance, result, kind, replacePos);
+   134→   134→          toast.success(`${file.name} added`);
+   135→   135→        } catch (error) {
+   136→   136→          toast.dismiss(loadingToast);
+   137→   137→          toast.error(`Upload failed: ${error instanceof Error ? error.message : "unknown error"}`);
+   138→   138→        }
+   139→   139→      }
+   140→   140→    },
+   141→   141→    [insertUpload],
+   142→   142→  );
+   143→   143→
+   144→   144→  /** If the current selection is a media placeholder, its document position. */
+   145→   145→  const selectedPlaceholderPos = React.useCallback((editorInstance: Editor): number | undefined => {
+   146→   146→    const { selection } = editorInstance.state;
+   147→   147→    if (selection instanceof NodeSelection && selection.node.type.name === "mediaPlaceholder") {
+   148→   148→      return selection.from;
+   149→   149→    }
+   150→   150→    return undefined;
+   151→   151→  }, []);
+   152→   152→
+   153→   153→  /** Commit a URL into the selected media placeholder (paste-a-link UX). */
+   154→   154→  const commitPlaceholderUrl = React.useCallback(
+   155→   155→    (editorInstance: Editor, pos: number, rawUrl: string): boolean => {
+   156→   156→      const node = editorInstance.state.doc.nodeAt(pos);
+   157→   157→      if (!node || node.type.name !== "mediaPlaceholder") return false;
+   158→   158→      const rawKind = node.attrs.kind;
+   159→   159→      const kind: MediaKind = isMediaKind(rawKind) ? rawKind : "image";
+   160→   160→      const url = /^https?:\/\//i.test(rawUrl.trim()) ? rawUrl.trim() : `https://${rawUrl.trim()}`;
+   161→   161→      let name = "";
+   162→   162→      try {
+   163→   163→        const parsed = new URL(url);
+   164→   164→        name =
+   165→   165→          decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "") || parsed.hostname;
+   166→   166→      } catch {
+   167→   167→        return false;
+   168→   168→      }
+   169→   169→      editorInstance
+   170→   170→        .chain()
+   171→   171→        .focus()
+   172→   172→        .insertContentAt(
+   173→   173→          { from: pos, to: pos + node.nodeSize },
+   174→   174→          mediaNodeFor(kind, {
+   175→   175→            url,
+   176→   176→            name,
+   177→   177→            size: 0,
+   178→   178→            type: kind === "image" ? "image/remote" : kind === "video" ? "video/remote" : guessTypeFromUrl(url),
+   179→   179→          }),
+   180→   180→        )
+   181→   181→        .run();
+   182→   182→      return true;
+   183→   183→    },
+   184→   184→    [],
+   185→   185→  );
+   186→   186→
+   187→   187→  /* ------------------------------------------------ slash action helpers */
+   188→   188→  const requestEmoji = React.useCallback((editorInstance: Editor) => {
+   189→   189→    const coords = editorInstance.view.coordsAtPos(editorInstance.state.selection.to);
+   190→   190→    setEmojiAnchor(new DOMRect(coords.left, coords.top, 0, 0));
+   191→   191→  }, []);
+   192→   192→
+   193→   193→  const requestEmbed = React.useCallback(() => setEmbedOpen(true), []);
+   194→   194→
+   195→   195→  const requestMath = React.useCallback((editorInstance: Editor, inline: boolean) => {
+   196→   196→    if (inline) editorInstance.chain().focus().insertMathInline("").run();
+   197→   197→    else editorInstance.chain().focus().insertMathBlock("").run();
+   198→   198→  }, []);
+   199→   199→
+   200→   200→  // Stable across renders — safe to capture once inside useEditor options.
+   201→   201→  const slashHelpers = React.useMemo<SlashActionHelpers>(
+   202→   202→    () => ({ requestUpload, requestEmoji, requestEmbed, requestMath }),
+   203→   203→    [requestUpload, requestEmoji, requestEmbed, requestMath],
+   204→   204→  );
+   205→   205→
+   206→   206→  /* ------------------------------------------------ @ menu dialog helpers */
+   207→   207→  const datePickCb = React.useRef<((iso: string) => void) | null>(null);
+   208→   208→  const personCb = React.useRef<((name: string) => void) | null>(null);
+   209→   209→  const [datePickOpen, setDatePickOpen] = React.useState(false);
+   210→   210→  const [personOpen, setPersonOpen] = React.useState(false);
+   211→   211→
+   212→   212→  const mentionHelpers = React.useMemo<AtActionHelpers>(
+   213→   213→    () => ({
+   214→   214→      requestDatePick: (onPick) => {
+   215→   215→        datePickCb.current = onPick;
+   216→   216→        setDatePickOpen(true);
+   217→   217→      },
+   218→   218→      requestPersonInput: (onSubmit) => {
+   219→   219→        personCb.current = onSubmit;
+   220→   220→        setPersonOpen(true);
+   221→   221→      },
+   222→   222→    }),
+   223→   223→    [],
+   224→   224→  );
+   225→   225→
+   226→   226→  // The editor instance lands in a ref *after* creation so paste/drop
+   227→   227→  // handlers (created before the editor exists) can reach it safely.
+   228→   228→  const editorRef = React.useRef<Editor | null>(null);
+   229→   229→
+   230→   230→  /* ------------------------------------------------ editor instance */
+   231→   231→  const editor = useEditor(
+   232→   232→    {
+   233→   233→      extensions: buildExtensions({
+   234→   234→        getActionContext: () => slashHelpers,
+   235→   235→        getMentionHelpers: () => mentionHelpers,
+   236→   236→      }),
+   237→   237→      content: { type: "doc", content: [{ type: "paragraph" }] },
+   238→   238→      immediatelyRender: false,
+   239→   239→      autofocus: false,
+   240→   240→      editorProps: {
+   241→   241→        attributes: {
+   242→   242→          class: "tiptap",
+   243→   243→          "aria-label": "Document editor",
+   244→   244→          role: "textbox",
+   245→   245→        },
+   246→   246→        handlePaste: (_view, event) => {
+   247→   247→          const editorInstance = editorRef.current;
+   248→   248→          if (!editorInstance) return false;
+   249→   249→          const clipboard = event.clipboardData;
+   250→   250→          const files = Array.from(clipboard?.files ?? []);
+   251→   251→          const placeholderPos = selectedPlaceholderPos(editorInstance);
+   252→   252→
+   253→   253→          // Pasting a URL onto a selected placeholder commits it directly.
+   254→   254→          if (placeholderPos !== undefined && !files.length) {
+   255→   255→            const text = (clipboard?.getData("text/plain") ?? "").trim();
+   256→   256→            if (/^(https?:\/\/|www\.)\S+$/i.test(text) && commitPlaceholderUrl(editorInstance, placeholderPos, text)) {
+   257→   257→              return true;
+   258→   258→            }
+   259→   259→          }
+   260→   260→
+   261→   261→          if (!files.length) return false;
+   262→   262→          // Screenshots & copied files — pick the block kind by mime type.
+   263→   263→          for (const file of files) {
+   264→   264→            void handleFiles([file], editorInstance, undefined, placeholderPos);
+   265→   265→          }
+   266→   266→          return true;
+   267→   267→        },
+   268→   268→        handleDrop: (view, event, _slice, moved) => {
+   269→   269→          const editorInstance = editorRef.current;
+   270→   270→          if (moved || !editorInstance) return false;
+   271→   271→          // Drops on a media placeholder card are handled by the card itself.
+   272→   272→          if ((event.target as HTMLElement)?.closest?.("[data-media-placeholder-ui]")) return false;
+   273→   273→          const files = Array.from(event.dataTransfer?.files ?? []);
+   274→   274→          if (!files.length) return false;
+   275→   275→          const placeholderPos = selectedPlaceholderPos(editorInstance);
+   276→   276→          const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+   277→   277→          for (const file of files) {
+   278→   278→            void handleFiles([file], editorInstance, coords?.pos, placeholderPos);
+   279→   279→          }
+   280→   280→          return true;
+   281→   281→        },
+   282→   282→      },
+   283→   283→    },
+   284→   284→    [],
+   285→   285→  );
+   286→   286→
+   287→   287→  /* ------------------------------------------------ keep editorRef fresh */
+   288→   288→  React.useEffect(() => {
+   289→   289→    editorRef.current = editor;
+   290→   290→    // Debug handle for browser console testing (dev only).
+   291→   291→    if (process.env.NODE_ENV !== "production") {
+   292→   292→      (window as unknown as { __editor?: Editor }).__editor = editor;
+   293→   293→    }
+   294→   294→  }, [editor]);
+   295→   295→
+   296→   296→  /* ------------------------------------------------ load document */
+   297→   297→  React.useEffect(() => {
+   298→   298→    if (!editor) return;
+   299→   299→    let cancelled = false;
+   300→   300→    fetchDocument()
+   301→   301→      .then((doc) => {
+   302→   302→        if (cancelled) return;
+   303→   303→        setTitle(doc.title);
+   304→   304→        if (doc.content && typeof doc.content === "object" && "type" in (doc.content as object)) {
+   305→   305→          editor.commands.setContent(doc.content as JSONContent, { emitUpdate: false });
+   306→   306→        }
+   307→   307→        setReady(true);
+   308→   308→      })
+   309→   309→      .catch((error) => {
+   310→   310→        if (cancelled) return;
+   311→   311→        console.error("[editor] failed to load document", error);
+   312→   312→        toast.error("Couldn't load your document", {
+   313→   313→          description: "You can keep writing — changes will retry on save.",
+   314→   314→        });
+   315→   315→        setReady(true);
+   316→   316→      });
+   317→   317→    return () => {
+   318→   318→      cancelled = true;
+   319→   319→    };
+   320→   320→  }, [editor]);
+   321→   321→
+   322→   322→  /* ------------------------------------------------ autosave */
+   323→   323→  const { status, savedAt, saveNow } = useAutosave({ editor, title, ready });
+   324→   324→
+   325→   325→  /* ------------------------------------------------ global shortcuts */
+   326→   326→  React.useEffect(() => {
+   327→   327→    const onKey = (e: KeyboardEvent) => {
+   328→   328→      const mod = e.metaKey || e.ctrlKey;
+   329→   329→      if (mod && e.key.toLowerCase() === "f") {
+   330→   330→        e.preventDefault();
+   331→   331→        setSearchOpen(true);
+   332→   332→      }
+   333→   333→      if (mod && e.key === "/") {
+   334→   334→        e.preventDefault();
+   335→   335→        setShortcutsOpen((v) => !v);
+   336→   336→      }
+   337→   337→    };
+   338→   338→    window.addEventListener("keydown", onKey);
+   339→   339→    return () => window.removeEventListener("keydown", onKey);
+   340→   340→  }, []);
+   341→   341→
+   342→   342→  /* ------------------------------------------------ future-ready stubs */
+   343→   343→  React.useEffect(() => {
+   344→   344→    const onFutureFeature = (e: Event) => {
+   345→   345→      const detail = (e as CustomEvent<string>).detail ?? "This feature";
+   346→   346→      toast(`${detail} — coming soon`, {
+   347→   347→        description: "The extension registry is ready for it.",
+   348→   348→      });
+   349→   349→    };
+   350→   350→    window.addEventListener("aurora:future-feature", onFutureFeature);
+   351→   351→    return () => window.removeEventListener("aurora:future-feature", onFutureFeature);
+   352→   352→  }, []);
+   353→   353→
+   354→   354→  /* ------------------------------------------------ demo & misc actions */
+   355→   355→  const loadDemo = React.useCallback(() => {
+   356→   356→    if (!editor) return;
+   357→   357→    if (editor.isEmpty) {
+   358→   358→      editor.commands.setContent(DEMO_CONTENT, { emitUpdate: true });
+   359→   359→    } else {
+   360→   360→      editor
+   361→   361→        .chain()
+   362→   362→        .focus("end")
+   363→   363→        .insertContentAt(editor.state.doc.content.size, DEMO_CONTENT.content)
+   364→   364→        .run();
+   365→   365→    }
+   366→   366→    toast.success("Demo document loaded", {
+   367→   367→      description: "Hover blocks, press / anywhere, select text — explore!",
+   368→   368→    });
+   369→   369→  }, [editor]);
+   370→   370→
+   371→   371→  return (
+   372→   372→    <div className="flex h-screen flex-col overflow-hidden bg-background">
+   373→   373→      <Header
+   374→   374→        editor={editor}
+   375→   375→        title={title}
+   376→   376→        onTitleChange={setTitle}
+   377→   377→        status={status}
+   378→   378→        onUndo={() => editor?.chain().focus().undo().run()}
+   379→   379→        onRedo={() => editor?.chain().focus().redo().run()}
+   380→   380→        onOpenSearch={() => setSearchOpen(true)}
+   381→   381→        onOpenShortcuts={() => setShortcutsOpen(true)}
+   382→   382→        onLoadDemo={loadDemo}
+   383→   383→      />
+   384→   384→
+   385→   385→      <main className="relative flex-1 overflow-y-auto" aria-label="Document">
+   386→   386→        {/* Loading skeleton */}
+   387→   387→        {!ready && (
+   388→   388→          <div className="pointer-events-none absolute inset-x-0 top-10 z-10 mx-auto max-w-[720px] px-6">
+   389→   389→            <EditorSkeleton />
+   390→   390→          </div>
+   391→   391→        )}
+   392→   392→
+   393→   393→        <div ref={contentRef} className="relative mx-auto w-full max-w-[880px] px-5 pb-24 pt-12 md:px-20 lg:px-24">
+   394→   394→          <div
+   395→   395→            data-editor-column
+   396→   396→            className="rich-editor mx-auto max-w-[720px]"
+   397→   397→            onContextMenu={(e) => {
+   398→   398→              if (!editor) return;
+   399→   399→              const coords = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+   400→   400→              if (!coords) return;
+   401→   401→              e.preventDefault();
+   402→   402→              setContextMenu({ x: e.clientX, y: e.clientY, pos: coords.pos });
+   403→   403→            }}
+   404→   404→          >
+   405→   405→            {editor && (
+   406→   406→              <>
+   407→   407→                <EditorContent editor={editor} />
+   408→   408→                <FloatingToolbar editor={editor} />
+   409→   409→                <TableMenu editor={editor} />
+   410→   410→              </>
+   411→   411→            )}
+   412→   412→          </div>
+   413→   413→
+   414→   414→          {editor && ready && <BlockHandle editor={editor} contentRef={contentRef} />}
+   415→   415→          {editor && ready && <EmptyStateHint editor={editor} onLoadDemo={loadDemo} />}
+   416→   416→        </div>
+   417→   417→      </main>
+   418→   418→
+   419→   419→      <StatusBar editor={editor} status={status} savedAt={savedAt} />
+   420→   420→
+   421→   421→      {/* ------------------------------ overlays ------------------------------ */}
+   422→   422→      {editor && <SlashMenu />}
+   423→   423→      {editor && <AtMenu />}
+   424→   424→      {editor && <EmojiMenu />}
+   425→   425→      {editor && <SearchPanel editor={editor} open={searchOpen} onClose={() => setSearchOpen(false)} />}
+   426→   426→      {editor && (
+   427→   427→        <ContextMenu
+   428→   428→          editor={editor}
+   429→   429→          state={contextMenu}
+   430→   430→          onClose={() => setContextMenu(null)}
+   431→   431→        />
+   432→   432→      )}
+   433→   433→      {editor && <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />}
+   434→   434→
+   435→   435→      {editor && emojiAnchor && (
+   436→   436→        <EmojiPicker
+   437→   437→          anchorRect={emojiAnchor}
+   438→   438→          onPick={(emoji) => {
+   439→   439→            editor.chain().focus().insertContent(emoji).run();
+   440→   440→            setEmojiAnchor(null);
+   441→   441→          }}
+   442→   442→          onClose={() => setEmojiAnchor(null)}
+   443→   443→        />
+   444→   444→      )}
+   445→   445→
+   446→   446→      <EmbedDialog
+   447→   447→        open={embedOpen}
+   448→   448→        onOpenChange={setEmbedOpen}
+   449→   449→        onSubmit={(url) => {
+   450→   450→          const normalized = normalizeEmbedUrl(url);
+   451→   451→          if (!normalized) {
+   452→   452→            toast.error("That doesn't look like a valid embed URL");
+   453→   453→            return;
+   454→   454→          }
+   455→   455→          editor?.chain().focus().insertEmbed(normalized).run();
+   456→   456→          setEmbedOpen(false);
+   457→   457→          toast.success("Embed added");
+   458→   458→        }}
+   459→   459→      />
+   460→   460→
+   461→   461→      <DatePickDialog
+   462→   462→        open={datePickOpen}
+   463→   463→        onOpenChange={setDatePickOpen}
+   464→   464→        onPick={(iso) => {
+   465→   465→          datePickCb.current?.(iso);
+   466→   466→          datePickCb.current = null;
+   467→   467→        }}
+   468→   468→      />
+   469→   469→      <PersonDialog
+   470→   470→        open={personOpen}
+   471→   471→        onOpenChange={setPersonOpen}
+   472→   472→        onSubmit={(name) => {
+   473→   473→          personCb.current?.(name);
+   474→   474→          personCb.current = null;
+   475→   475→        }}
+   476→   476→      />
+   477→   477→
+   478→   478→      {/* Hidden file input for uploads */}
+   479→   479→      <input
+   480→   480→        ref={fileInputRef}
+   481→   481→        type="file"
+   482→   482→        multiple
+   483→   483→        className="hidden"
+   484→   484→        onChange={(e) => {
+   485→   485→          const files = Array.from(e.target.files ?? []);
+   486→   486→          if (files.length && editor) void handleFiles(files, editor);
+   487→   487→          e.target.value = "";
+   488→   488→        }}
+   489→   489→      />
+   490→   490→    </div>
+   491→   491→  );
+   492→   492→}
+   493→   493→
+   494→   494→/* ================================================================ Header */
+   495→   495→
+   496→   496→function Header({
+   497→   497→  editor,
+   498→   498→  title,
+   499→   499→  onTitleChange,
+   500→   500→  status,
+   501→   501→  onUndo,
+   502→   502→  onRedo,
+   503→   503→  onOpenSearch,
+   504→   504→  onOpenShortcuts,
+   505→   505→  onLoadDemo,
+   506→   506→}: {
+   507→   507→  editor: Editor | null;
+   508→   508→  title: string;
+   509→   509→  onTitleChange: (value: string) => void;
+   510→   510→  status: SaveStatus;
+   511→   511→  onUndo: () => void;
+   512→   512→  onRedo: () => void;
+   513→   513→  onOpenSearch: () => void;
+   514→   514→  onOpenShortcuts: () => void;
+   515→   515→  onLoadDemo: () => void;
+   516→   516→}) {
+   517→   517→  const { theme, setTheme } = useTheme();
+   518→   518→  const [mounted, setMounted] = React.useState(false);
+   519→   519→  React.useEffect(() => setMounted(true), []);
+   520→   520→
+   521→   521→  const history = useEditorState({
+   522→   522→    editor,
+   523→   523→    selector: ({ editor: e }) =>
+   524→   524→      e ? { canUndo: e.can().undo(), canRedo: e.can().redo() } : { canUndo: false, canRedo: false },
+   525→   525→  });
+   526→   526→
+   527→   527→  return (
+   528→   528→    <TooltipProvider delayDuration={300}>
+   529→   529→      <header className="sticky top-0 z-50 shrink-0 border-b border-border/60 bg-background/85 backdrop-blur-xl">
+   530→   530→        <div className="mx-auto flex h-[52px] w-full max-w-5xl items-center gap-2 px-3 md:px-5">
+   531→   531→          <div
+   532→   532→            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 text-white shadow-md shadow-violet-500/25"
+   533→   533→            aria-hidden
+   534→   534→          >
+   535→   535→            <Feather size={15} strokeWidth={2.2} />
+   536→   536→          </div>
+   537→   537→
+   538→   538→          <input
+   539→   539→            value={title}
+   540→   540→            onChange={(e) => onTitleChange(e.target.value)}
+   541→   541→            onKeyDown={(e) => {
+   542→   542→              if (e.key === "Enter") {
+   543→   543→                e.preventDefault();
+   544→   544→                editor?.commands.focus("start");
+   545→   545→              }
+   546→   546→            }}
+   547→   547→            placeholder="Untitled"
+   548→   548→            aria-label="Document title"
+   549→   549→            className="min-w-0 flex-1 rounded-md bg-transparent px-1.5 py-1 text-[14.5px] font-semibold tracking-tight outline-none transition-colors placeholder:text-muted-foreground/50 hover:bg-muted/40 focus:bg-muted/60"
+   550→   550→          />
+   551→   551→
+   552→   552→          <SaveChip status={status} />
+   553→   553→
+   554→   554→          <div className="flex items-center gap-0.5">
+   555→   555→            <HeaderBtn title="Undo — ⌘Z" onClick={onUndo} disabled={!history?.canUndo}>
+   556→   556→              <Undo2 size={15} />
+   557→   557→            </HeaderBtn>
+   558→   558→            <HeaderBtn title="Redo — ⌘⇧Z" onClick={onRedo} disabled={!history?.canRedo}>
+   559→   559→              <Redo2 size={15} />
+   560→   560→            </HeaderBtn>
+   561→   561→
+   562→   562→            <span className="mx-1 h-5 w-px bg-border/70" aria-hidden />
+   563→   563→
+   564→   564→            <HeaderBtn title="Insert demo document" onClick={onLoadDemo}>
+   565→   565→              <Presentation size={15} />
+   566→   566→            </HeaderBtn>
+   567→   567→            <HeaderBtn title="Search & replace — ⌘F" onClick={onOpenSearch}>
+   568→   568→              <Search size={15} />
+   569→   569→            </HeaderBtn>
+   570→   570→            <HeaderBtn title="Keyboard shortcuts — ⌘/" onClick={onOpenShortcuts}>
+   571→   571→              <Keyboard size={15} />
+   572→   572→            </HeaderBtn>
+   573→   573→            <HeaderBtn
+   574→   574→              title={mounted && theme === "dark" ? "Switch to light" : "Switch to dark"}
+   575→   575→              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+   576→   576→            >
+   577→   577→              {mounted && theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+   578→   578→            </HeaderBtn>
+   579→   579→          </div>
+   580→   580→        </div>
+   581→   581→      </header>
+   582→   582→    </TooltipProvider>
+   583→   583→  );
+   584→   584→}
+   585→   585→
+   586→   586→function HeaderBtn({
+   587→   587→  children,
+   588→   588→  title,
+   589→   589→  onClick,
+   590→   590→  disabled,
+   591→   591→}: {
+   592→   592→  children: React.ReactNode;
+   593→   593→  title: string;
+   594→   594→  onClick: () => void;
+   595→   595→  disabled?: boolean;
+   596→   596→}) {
+   597→   597→  return (
+   598→   598→    <Tooltip>
+   599→   599→      <TooltipTrigger asChild>
+   600→   600→        <button
+   601→   601→          type="button"
+   602→   602→          aria-label={title}
+   603→   603→          disabled={disabled}
+   604→   604→          onClick={onClick}
+   605→   605→          className="editor-icon-btn h-8 w-8 rounded-lg disabled:cursor-not-allowed disabled:opacity-35"
+   606→   606→        >
+   607→   607→          {children}
+   608→   608→        </button>
+   609→   609→      </TooltipTrigger>
+   610→   610→      <TooltipContent side="bottom" className="text-xs">
+   611→   611→        {title}
+   612→   612→      </TooltipContent>
+   613→   613→    </Tooltip>
+   614→   614→  );
+   615→   615→}
+   616→   616→
+   617→   617→function SaveChip({ status }: { status: SaveStatus }) {
+   618→   618→  const map: Record<SaveStatus, { label: string; className: string }> = {
+   619→   619→    idle: { label: "Synced", className: "text-muted-foreground" },
+   620→   620→    saved: { label: "Saved", className: "text-emerald-500" },
+   621→   621→    dirty: { label: "Unsaved", className: "text-amber-500" },
+   622→   622→    saving: { label: "Saving", className: "text-violet-400 animate-pulse" },
+   623→   623→    error: { label: "Retrying…", className: "text-red-400" },
+   624→   624→  };
+   625→   625→  const { label, className } = map[status];
+   626→   626→  return (
+   627→   627→    <span
+   628→   628→      className={cn(
+   629→   629→        "mr-1 hidden items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 py-1 text-[11px] font-medium sm:flex",
+   630→   630→        className,
+   631→   631→      )}
+   632→   632→      role="status"
+   633→   633→      aria-live="polite"
+   634→   634→    >
+   635→   635→      <span className={cn("h-1.5 w-1.5 rounded-full bg-current", status === "saving" && "animate-ping")} />
+   636→   636→      {label}
+   637→   637→    </span>
+   638→   638→  );
+   639→   639→}
+   640→   640→
+   641→   641→/* ============================================================== StatusBar */
+   642→   642→
+   643→   643→function StatusBar({
+   644→   644→  editor,
+   645→   645→  status,
+   646→   646→  savedAt,
+   647→   647→}: {
+   648→   648→  editor: Editor | null;
+   649→   649→  status: SaveStatus;
+   650→   650→  savedAt: Date | null;
+   651→   651→}) {
+   652→   652→  const stats = useEditorState({
+   653→   653→    editor,
+   654→   654→    selector: ({ editor: e }) =>
+   655→   655→      e
+   656→   656→        ? {
+   657→   657→            words: e.storage.characterCount.words(),
+   658→   658→            chars: e.storage.characterCount.characters(),
+   659→   659→            blocks: e.state.doc.childCount,
+   660→   660→          }
+   661→   661→        : { words: 0, chars: 0, blocks: 0 },
+   662→   662→  });
+   663→   663→
+   664→   664→  const timeLabel = savedAt
+   665→   665→    ? `· ${relativeTime(savedAt)}`
+   666→   666→    : "";
+   667→   667→
+   668→   668→  return (
+   669→   669→    <footer className="mt-auto shrink-0 border-t border-border/60 bg-background/85 backdrop-blur-xl">
+   670→   670→      <div className="mx-auto flex h-9 w-full max-w-5xl items-center justify-between px-4 pb-[env(safe-area-inset-bottom)] text-[11.5px] text-muted-foreground">
+   671→   671→        <div className="flex items-center gap-3 tabular-nums">
+   672→   672→          <span>
+   673→   673→            <span className="font-medium text-foreground/70">{stats?.blocks ?? 0}</span> blocks
+   674→   674→          </span>
+   675→   675→          <span aria-hidden>·</span>
+   676→   676→          <span>
+   677→   677→            <span className="font-medium text-foreground/70">{stats?.words ?? 0}</span> words
+   678→   678→          </span>
+   679→   679→          <span aria-hidden className="hidden sm:inline">·</span>
+   680→   680→          <span className="hidden sm:inline">
+   681→   681→            <span className="font-medium text-foreground/70">{stats?.chars ?? 0}</span> characters
+   682→   682→          </span>
+   683→   683→        </div>
+   684→   684→        <div className="flex items-center gap-2">
+   685→   685→          <span className="hidden md:inline">Press / for commands · ⌘/ shortcuts</span>
+   686→   686→          <span aria-hidden className="hidden md:inline">·</span>
+   687→   687→          <span className="flex items-center gap-1.5" role="status" aria-live="polite">
+   688→   688→            <span
+   689→   689→              className={cn(
+   690→   690→                "h-1.5 w-1.5 rounded-full",
+   691→   691→                status === "saved" && "bg-emerald-500",
+   692→   692→                status === "saving" && "animate-pulse bg-violet-400",
+   693→   693→                status === "dirty" && "bg-amber-500",
+   694→   694→                status === "error" && "bg-red-400",
+   695→   695→                (status === "idle") && "bg-muted-foreground/50",
+   696→   696→              )}
+   697→   697→            />
+   698→   698→            {status === "saved" ? `Saved ${timeLabel}` : status === "idle" ? "All changes captured" : status.charAt(0).toUpperCase() + status.slice(1)}
+   699→   699→          </span>
+   700→   700→        </div>
+   701→   701→      </div>
+   702→   702→    </footer>
+   703→   703→  );
+   704→   704→}
+   705→   705→
+   706→   706→function relativeTime(date: Date): string {
+   707→   707→  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+   708→   708→  if (seconds < 10) return "just now";
+   709→   709→  if (seconds < 60) return `${seconds}s ago`;
+   710→   710→  const minutes = Math.round(seconds / 60);
+   711→   711→  if (minutes < 60) return `${minutes}m ago`;
+   712→   712→  const hours = Math.round(minutes / 60);
+   713→   713→  if (hours < 24) return `${hours}h ago`;
+   714→   714→  return date.toLocaleDateString();
+   715→   715→}
+   716→   716→
+   717→   717→/* ============================================================ Sub-pieces */
+   718→   718→
+   719→   719→function EmptyStateHint({
+   720→   720→  editor,
+   721→   721→  onLoadDemo,
+   722→   722→}: {
+   723→   723→  editor: Editor;
+   724→   724→  onLoadDemo: () => void;
+   725→   725→}) {
+   726→   726→  const isEmpty = useEditorState({
+   727→   727→    editor,
+   728→   728→    selector: ({ editor: e }) => e.isEmpty,
+   729→   729→  });
+   730→   730→  if (!isEmpty) return null;
+   731→   731→  return (
+   732→   732→    <div className="pointer-events-none absolute inset-x-0 top-[128px] z-10 flex justify-center animate-fade-slide-up">
+   733→   733→      <div className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-border/70 bg-card/80 py-1.5 pl-4 pr-1.5 text-xs text-muted-foreground shadow-lg shadow-black/10 backdrop-blur-md">
+   734→   734→        <span>
+   735→   735→          Start typing, press <span className="kbd mx-0.5">/</span> for blocks
+   736→   736→        </span>
+   737→   737→        <span className="h-3.5 w-px bg-border" aria-hidden />
+   738→   738→        <button
+   739→   739→          type="button"
+   740→   740→          onClick={onLoadDemo}
+   741→   741→          className="flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-1 font-medium text-primary transition-colors hover:bg-primary/25"
+   742→   742→        >
+   743→   743→          <Plus size={11} /> Load demo
+   744→   744→        </button>
+   745→   745→      </div>
+   746→   746→    </div>
+   747→   747→  );
+   748→   748→}
+   749→   749→
+   750→   750→function EditorSkeleton() {
+   751→   751→  return (
+   752→   752→    <div className="space-y-5" aria-hidden>
+   753→   753→      <div className="h-8 w-2/3 animate-pulse rounded-lg bg-muted/70" />
+   754→   754→      <div className="h-4 w-full animate-pulse rounded bg-muted/50" />
+   755→   755→      <div className="h-4 w-11/12 animate-pulse rounded bg-muted/50" />
+   756→   756→      <div className="h-4 w-4/5 animate-pulse rounded bg-muted/40" />
+   757→   757→      <div className="h-24 w-full animate-pulse rounded-xl bg-muted/40" />
+   758→   758→      <div className="h-4 w-3/4 animate-pulse rounded bg-muted/40" />
+   759→   759→    </div>
+   760→   760→  );
+   761→   761→}
+   762→   762→
+   763→   763→function EmbedDialog({
+   764→   764→  open,
+   765→   765→  onOpenChange,
+   766→   766→  onSubmit,
+   767→   767→}: {
+   768→   768→  open: boolean;
+   769→   769→  onOpenChange: (open: boolean) => void;
+   770→   770→  onSubmit: (url: string) => void;
+   771→   771→}) {
+   772→   772→  const [url, setUrl] = React.useState("");
+   773→   773→  return (
+   774→   774→    <Dialog open={open} onOpenChange={onOpenChange}>
+   775→   775→      <DialogContent className="rounded-2xl border-border/80 bg-popover/95 backdrop-blur-xl sm:max-w-md">
+   776→   776→        <DialogHeader>
+   777→   777→          <DialogTitle className="flex items-center gap-2 text-base">
+   778→   778→            <Globe size={16} className="text-primary" /> Embed content
+   779→   779→          </DialogTitle>
+   780→   780→          <DialogDescription className="text-xs">
+   781→   781→            Paste a YouTube, Vimeo or Loom link — any https URL works too.
+   782→   782→          </DialogDescription>
+   783→   783→        </DialogHeader>
+   784→   784→        <form
+   785→   785→          onSubmit={(e) => {
+   786→   786→            e.preventDefault();
+   787→   787→            if (url.trim()) onSubmit(url);
+   788→   788→          }}
+   789→   789→          className="space-y-3"
+   790→   790→        >
+   791→   791→          <input
+   792→   792→            value={url}
+   793→   793→            onChange={(e) => setUrl(e.target.value)}
+   794→   794→            placeholder="https://youtube.com/watch?v=…"
+   795→   795→            autoFocus
+   796→   796→            className="h-10 w-full rounded-lg border border-border bg-muted/40 px-3 text-[13.5px] outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/50"
+   797→   797→          />
+   798→   798→          <div className="flex justify-end gap-2">
+   799→   799→            <button
+   800→   800→              type="button"
+   801→   801→              onClick={() => onOpenChange(false)}
+   802→   802→              className="h-8 rounded-lg px-3 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+   803→   803→            >
+   804→   804→              Cancel
+   805→   805→            </button>
+   806→   806→            <button
+   807→   807→              type="submit"
+   808→   808→              className="h-8 rounded-lg bg-primary px-3.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+   809→   809→            >
+   810→   810→              Insert embed
+   811→   811→            </button>
+   812→   812→          </div>
+   813→   813→        </form>
+   814→   814→      </DialogContent>
+   815→   815→    </Dialog>
+   816→   816→  );
+   817→   817→}
+   818→   818→
