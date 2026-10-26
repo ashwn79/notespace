@@ -40,18 +40,25 @@ export function SearchPanel({
     return () => editor.off("transaction", update);
   }, [editor]);
 
+  // True once the panel has been opened at least once — search commands are
+  // never dispatched before first use, so page load can't race them against
+  // setContent() ("Applying a mismatched transaction").
+  const everOpened = React.useRef(false);
+
   // Push term → plugin (debounced for instant-but-stable results).
+  // Skipped until the panel has actually been used: a mount-time dispatch
+  // races setContent() during document load and can throw
+  // "Applying a mismatched transaction" — and pushing an empty term before
+  // first use is a semantic no-op anyway.
   React.useEffect(() => {
+    if (!everOpened.current) return;
     const t = window.setTimeout(() => {
       editor.commands.setSearchTerm(term, caseSensitive);
     }, 140);
     return () => window.clearTimeout(t);
   }, [term, caseSensitive, editor]);
 
-  // Reset when closed. (Skipped on first mount — the plugin state is
-  // already empty, and dispatching before the view settles can race
-  // editor initialization under StrictMode.)
-  const everOpened = React.useRef(false);
+  // Reset when closed (only after first use — see everOpened above).
   React.useEffect(() => {
     if (!open) {
       if (everOpened.current) {

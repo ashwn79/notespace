@@ -10,6 +10,7 @@ import {
   recordRecent,
   type SlashItem,
 } from "./slash-items";
+import { useIsTouch } from "../mobile/use-mobile";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,6 +29,14 @@ export function SlashMenu() {
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [, forceTick] = React.useState(0);
   const listRef = React.useRef<HTMLDivElement>(null);
+
+  // On touch devices the mobile ➕ sheet replaces the slash menu — typing
+  // "/" just inserts literal text there. Narrow desktop windows keep it.
+  const isTouch = useIsTouch();
+  const touchRef = React.useRef(false);
+  React.useEffect(() => {
+    touchRef.current = isTouch;
+  }, [isTouch]);
 
   // Keep the menu glued to the caret while scrolling / resizing.
   React.useEffect(() => {
@@ -87,6 +96,7 @@ export function SlashMenu() {
   // attach effect re-registers whenever it changes.
   const handleKeyDown = React.useCallback(
     (keyProps: SuggestionKeyDownProps): boolean => {
+      if (touchRef.current) return false;
       const event = keyProps.event;
       if (event.key === "ArrowDown") {
         event.preventDefault();
@@ -118,11 +128,13 @@ export function SlashMenu() {
   React.useEffect(() => {
     slashController.attach({
       onStart: (props) => {
+        if (touchRef.current) return;
         setDismissed(false);
         setActiveIndex(0);
         setState({ open: true, props });
       },
       onUpdate: (props) => {
+        if (touchRef.current) return;
         setDismissed(false);
         setState((prev) => ({ open: true, props }));
       },

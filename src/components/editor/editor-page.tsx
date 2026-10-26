@@ -40,6 +40,7 @@ import { ShortcutsDialog } from "./panels/shortcuts-dialog";
 import { EmojiPicker } from "./menus/emoji-picker";
 import { normalizeEmbedUrl } from "./extensions/media";
 import { useAutosave } from "./hooks/use-autosave";
+import { MobileLayer } from "./mobile/mobile-toolbar";
 
 /**
  * EditorPage — the full application shell:
@@ -62,6 +63,7 @@ export default function EditorPage() {
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null);
 
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const mainRef = React.useRef<HTMLElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const uploadKindRef = React.useRef<UploadKind>("image");
 
@@ -227,7 +229,7 @@ export default function EditorPage() {
         onLoadDemo={loadDemo}
       />
 
-      <main className="relative flex-1 overflow-y-auto" aria-label="Document">
+      <main ref={mainRef} className="relative flex-1 overflow-y-auto" aria-label="Document">
         {/* Loading skeleton */}
         {!ready && (
           <div className="pointer-events-none absolute inset-x-0 top-10 z-10 mx-auto max-w-[720px] px-6">
@@ -264,6 +266,14 @@ export default function EditorPage() {
       <StatusBar editor={editor} status={status} savedAt={savedAt} />
 
       {/* ------------------------------ overlays ------------------------------ */}
+      {editor && (
+        <MobileLayer
+          editor={editor}
+          helpers={slashHelpers}
+          contentRef={contentRef}
+          scrollRef={mainRef}
+        />
+      )}
       {editor && <SlashMenu />}
       {editor && <MentionMenu />}
       {editor && <SearchPanel editor={editor} open={searchOpen} onClose={() => setSearchOpen(false)} />}
